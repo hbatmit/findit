@@ -1,0 +1,87 @@
+"""End-to-end test with the mock models on a synthetic clip.
+
+A red blob ("sunglasses" in the mock detector) sits top-left for 3 s, vanishes,
+then reappears bottom-right for the last 2 s. A green blob ("keys") stays put.
+The query for sunglasses must return the bottom-right, later sighting.
+"""
+from pathlib import Path
+
+import cv2
+import numpy as np
+import pytest
+from fastapi.testclient import TestClient
+
+from server import config
+from server.models import MockDescriber, MockDetector, MockEmbedder
+from server.pipeline import Models, answer_query, process_clip
+from server.store import Store
+
+
+def make_clip(path: Path, fps: int = 10, seconds: int = 6) -> None:
+    w, h = 320, 240
+    out = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+    for i in range(fps * seconds):
+        t = i / fps
+        frame = np.full((h, w, 3), 230, np.uint8)
+        cv2.rectangle(frame, (20, 200), (60, 225), (0, 200, 0), -1)  # green "keys", static
+        if t < 3:
+            cv2.rectangle(frame, (30, 30), (80, 60), (0, 0, 220), -1)  # red "sunglasses" top-left
+        elif t >= 4:
+            cv2.rectangle(frame, (240, 170), (290, 200), (0, 0, 220), -1)  # ... bottom-right
+        out.write(frame)
+    out.release()
+
+
+@pytest.fixture
+def models():
+    return Models(MockDetector(), MockEmbedder(), MockDescriber())
+
+
+def test_last_location_is_latest_sighting(tmp_path, models):
+    clip = tmp_path / "clip.mp4"
+    make_clip(clip)
+    store = Store(tmp_path / "mem.sqlite")
+    store.create_job("j1", 0.0)
+    n = process_clip(clip, "j1", models, store, delete_after=True)
+    assert not clip.exists(), "clip must be deleted after processing"
+    # The sunglasses re-appear elsewhere with the same appearance, so they are
+    # linked to the same track and only its last location moves.
+    labels = sorted(r.label for r in store.tracks("j1"))
+    assert labels == ["keys", "sunglasses"], labels
+    assert n == 2
+
+    res = answer_query("j1", "brown sunglasses", models, store)
+    assert res["found"]
+    assert res["label"] == "sunglasses"
+    assert res["last_seen_s"] >= 4.0
+    row = next(r for r in store.tracks("j1") if r.id == res["track_id"])
+    assert row.last_box[0] > 200  # bottom-right placement
+
+    res = answer_query("j1", "my keys", models, store)
+    assert res["found"] and res["label"] == "keys"
+
+
+def test_http_roundtrip(tmp_path, monkeypatch, models):
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "mem.sqlite")
+    monkeypatch.setattr(config, "UPLOAD_DIR", tmp_path / "uploads")
+    import importlib
+    from server import app as app_module
+    importlib.reload(app_module)
+
+    clip = tmp_path / "clip.mp4"
+    make_clip(clip)
+    with TestClient(app_module.app) as client:
+        r = client.post("/api/upload", files={"file": ("clip.mp4", clip.read_bytes(), "video/mp4")})
+        assert r.status_code == 200, r.text
+        job = r.json()["job_id"]
+        app_module.executor.shutdown(wait=True)  # wait for the background job
+        assert client.get(f"/api/jobs/{job}").json()["status"] == "done"
+        assert not list((tmp_path / "uploads").iterdir()), "upload must be deleted"
+        tracks = client.get(f"/api/jobs/{job}/tracks").json()
+        assert len(tracks) == 2
+        a = client.post("/api/query", json={"job_id": job, "text": "sunglasses"}).json()
+        assert a["found"] and a["last_seen_s"] >= 4.0
+        t = client.get(a["thumb_url"])
+        assert t.status_code == 200 and t.headers["content-type"] == "image/jpeg"
+        assert client.get("/").status_code == 200

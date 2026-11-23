@@ -1,0 +1,16 @@
+# Core (runs the demo with the mock backend, no GPU needed)
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+numpy>=1.26
+opencv-python-headless>=4.9
+httpx>=0.27
+pydantic>=2.7
+
+# Dev
+pytest>=8
+
+# Real models (install on the CSAIL GPU box):
+#   pip install torch torchvision transformers>=4.57 pillow
+#   optional detector: pip install ultralytics   (YOLOE; AGPL-3.0)
+#   VLM server:        pip install vllm   then see README
