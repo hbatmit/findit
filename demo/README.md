@@ -49,43 +49,45 @@ python -m server.pipeline path/to/clip.mp4 "brown sunglasses" "keys"
    Smaller option: `Qwen/Qwen3-VL-2B-Instruct`, or llama.cpp's `llama-server`
    with a GGUF build and `--mmproj`.
 
-3. Start the demo server with real backends:
+3. Copy `config.example.toml` to `config.toml`, set `detector.backend`,
+   `embedder.backend`, `vlm.url` and `vlm.model`, then start the server:
 
    ```bash
-   FINDIT_DETECTOR=owlv2 FINDIT_EMBEDDER=siglip2 \
-   FINDIT_VLM_URL=http://127.0.0.1:8001/v1 FINDIT_VLM_MODEL=Qwen/Qwen3-VL-4B-Instruct \
-   FINDIT_VOCAB="sunglasses,keys,headphones,earbuds,book,scissors,phone,wallet,mug,remote control" \
    uvicorn server.app:app --host 0.0.0.0 --port 8000
    ```
 
-   `FINDIT_DETECTOR=yoloe` is much faster than OWLv2 but pulls in ultralytics
-   (AGPL-3.0).
+   `detector.backend = "yoloe"` is much faster than OWLv2 but pulls in
+   ultralytics (AGPL-3.0).
 
 4. Expose it: CSAIL machines are reachable over the CSAIL VPN; for off-campus
    viewers put nginx with TLS in front, or use a Tailscale/Cloudflare tunnel.
    Keep the `/api/upload` size limit in nginx (`client_max_body_size 500m`).
 
-## Environment variables
+## Configuration
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `FINDIT_DETECTOR` | `mock` | `mock`, `owlv2`, `yoloe` |
-| `FINDIT_EMBEDDER` | `mock` | `mock`, `siglip2` |
-| `FINDIT_VLM_URL` | empty (mock) | OpenAI-compatible base URL, e.g. `http://127.0.0.1:8001/v1` |
-| `FINDIT_VLM_MODEL` | `Qwen/Qwen3-VL-4B-Instruct` | model name sent to the endpoint |
-| `FINDIT_VOCAB` | common household items | comma-separated detector prompts |
-| `FINDIT_FPS` | `1.0` | frame sampling rate |
-| `FINDIT_DET_THRESHOLD` | `0.25` | detector confidence |
-| `FINDIT_TRACK_SIM` / `FINDIT_TRACK_IOU` | `0.80` / `0.10` | track linking thresholds |
-| `FINDIT_QUERY_MIN_SIM` | `0.05` | minimum query similarity to answer |
-| `FINDIT_THUMB` | `96` | thumbnail size in px; `0` disables storing any pixels |
-| `FINDIT_DATA_DIR` | `./data` | SQLite + transient upload dir |
+Everything lives in `config.toml` (start from `config.example.toml`; the file
+is gitignored). With no file, built-in defaults run the mock models. Any key
+can be overridden by an env var named `FINDIT_<SECTION>_<KEY>`, for example
+`FINDIT_DETECTOR_BACKEND=mock` or `FINDIT_VLM_URL=`. `python -m server.config`
+prints the resolved settings; `--shell` prints them as export lines, which is
+how the scripts read them.
+
+| Section | Keys |
+|---|---|
+| `server` | `host`, `port`, `public_hostname` (for the printed URL), `data_dir`, `thumb_size` (0 stores no pixels) |
+| `detector` | `backend` (mock, owlv2, yoloe), model names, `threshold`, `vocab` |
+| `embedder` | `backend` (mock, siglip2), `siglip2_model` |
+| `vlm` | `url` (empty uses mock descriptions), `model`, `port`, `gpu_memory_utilization`, `max_model_len` |
+| `pipeline` | `sample_fps`, `track_sim`, `track_iou`, `query_min_sim` |
+| `deploy` | `venv`, `hf_home` (used by the scripts only) |
 
 ## Layout
 
 ```
 demo/
-  server/config.py     env-driven settings
+  server/config.py     loads config.toml (+ env overrides, built-in defaults)
+  config.example.toml  template for config.toml
+  scripts/             setup and run scripts for a GPU host
   server/models.py     Detector / Embedder / Describer interfaces, mock + real backends
   server/pipeline.py   clip → tracks → store; query answering; CLI entry point
   server/store.py      SQLite object memory (no column can hold a frame)
@@ -104,18 +106,19 @@ demo/
 
 See `../docs/ARCHITECTURE.md` for where this grows into the full system.
 
-## CSAIL GPU host (mapmaker-gpu2)
+## GPU host (e.g. a CSAIL machine)
 
 ```bash
-ssh mapmaker-gpu2.csail.mit.edu
+ssh <gpu-host>
 git clone -b claude/object-location-tracking-arch-5c03bb https://github.com/hbatmit/findit
 cd findit/demo
-bash scripts/csail_setup.sh      # venv, deps, model download (~10 min, ~15 GB in /scratch/$USER/hf)
-bash scripts/csail_run.sh        # vLLM + API in tmux; prints the URL
+cp config.example.toml config.toml   # set server.public_hostname, vlm.model, etc.
+bash scripts/csail_setup.sh          # venv, deps, model download into /scratch/$USER/hf when available
+bash scripts/csail_run.sh            # vLLM + API in tmux; prints the URL
 ```
 
-Then open http://mapmaker-gpu2.csail.mit.edu:8000/ from the CSAIL network or VPN.
-`bash scripts/csail_run.sh logs` tails both services; `stop` shuts them down.
-Setup picks Qwen3-VL-4B if the GPU has ≥ 14 GB, else the 2B model; override
-with `FINDIT_VLM_MODEL=...` before running setup. If the GPU is shared, lower
-`--gpu-memory-utilization` in `scripts/csail_run.sh`.
+The page is served at `http://<server.public_hostname>:<server.port>/`, reachable
+from the CSAIL network or VPN. `bash scripts/csail_run.sh logs` tails both
+services; `stop` shuts them down. For a GPU under ~14 GB set
+`vlm.model = "Qwen/Qwen3-VL-2B-Instruct"`; on a shared GPU lower
+`vlm.gpu_memory_utilization`.

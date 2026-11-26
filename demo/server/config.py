@@ -1,42 +1,106 @@
-"""Demo configuration. Everything is an environment variable so the same code
-runs with mock models on a laptop and real models on the CSAIL GPU server."""
+"""Configuration: one TOML file, optional env overrides, built-in mock defaults.
+
+Resolution order for every key:
+    env FINDIT_<SECTION>_<KEY>  >  config.toml  >  DEFAULTS below
+
+The file path comes from FINDIT_CONFIG (default ./config.toml relative to the
+working directory). Module-level names (DETECTOR, VOCAB, ...) are kept for the
+rest of the code; `python -m server.config` prints the resolved config and
+`python -m server.config --shell` prints it as export lines for shell scripts.
+"""
 from __future__ import annotations
 
 import os
+import sys
+import tomllib
 from pathlib import Path
 
+DEFAULTS: dict[str, dict] = {
+    "server": {"host": "0.0.0.0", "port": 8000, "public_hostname": "", "data_dir": "./data", "thumb_size": 96},
+    "detector": {"backend": "mock", "owlv2_model": "google/owlv2-base-patch16-ensemble",
+                 "yoloe_weights": "yoloe-11s-seg.pt", "threshold": 0.25,
+                 "vocab": ["sunglasses", "glasses", "keys", "headphones", "earbuds", "book", "scissors",
+                           "phone", "wallet", "remote control", "mug", "bottle", "laptop", "pen",
+                           "notebook", "hat", "bag"]},
+    "embedder": {"backend": "mock", "siglip2_model": "google/siglip2-base-patch16-224"},
+    "vlm": {"url": "", "model": "Qwen/Qwen3-VL-4B-Instruct", "port": 8001,
+            "gpu_memory_utilization": 0.6, "max_model_len": 8192},
+    "pipeline": {"sample_fps": 1.0, "track_sim": 0.80, "track_iou": 0.10, "query_min_sim": 0.05},
+    "deploy": {"venv": "./.venv", "hf_home": ""},
+}
 
-def _list(name: str, default: str) -> list[str]:
-    return [s.strip() for s in os.environ.get(name, default).split(",") if s.strip()]
+CONFIG_PATH = Path(os.environ.get("FINDIT_CONFIG", "config.toml"))
 
 
-# Model backends: "mock" | "owlv2" | "yoloe"   and   "mock" | "siglip2"
-DETECTOR = os.environ.get("FINDIT_DETECTOR", "mock")
-EMBEDDER = os.environ.get("FINDIT_EMBEDDER", "mock")
+def _coerce(value: str, like):
+    if isinstance(like, bool):
+        return value.lower() in ("1", "true", "yes")
+    if isinstance(like, int):
+        return int(value)
+    if isinstance(like, float):
+        return float(value)
+    if isinstance(like, list):
+        return [s.strip() for s in value.split(",") if s.strip()]
+    return value
 
-# VLM is reached through an OpenAI-compatible endpoint (vLLM, llama.cpp server).
-# Leave FINDIT_VLM_URL empty to use the mock describer.
-VLM_URL = os.environ.get("FINDIT_VLM_URL", "")
-VLM_MODEL = os.environ.get("FINDIT_VLM_MODEL", "Qwen/Qwen3-VL-4B-Instruct")
 
-# Open-vocabulary prompt list for the detector. Keep it short for OWLv2 speed.
-VOCAB = _list(
-    "FINDIT_VOCAB",
-    "sunglasses,glasses,keys,headphones,earbuds,book,scissors,phone,wallet,"
-    "remote control,mug,bottle,laptop,pen,notebook,hat,bag",
-)
+def load(path: Path = CONFIG_PATH) -> dict[str, dict]:
+    cfg = {s: dict(v) for s, v in DEFAULTS.items()}
+    if path.exists():
+        with path.open("rb") as f:
+            for section, values in tomllib.load(f).items():
+                cfg.setdefault(section, {}).update(values)
+    for section, values in cfg.items():
+        for key, default in values.items():
+            env = os.environ.get(f"FINDIT_{section}_{key}".upper())
+            if env is not None:
+                values[key] = _coerce(env, default)
+    return cfg
 
-# Frame sampling rate for uploaded clips.
-SAMPLE_FPS = float(os.environ.get("FINDIT_FPS", "1.0"))
 
-# Detection / tracking thresholds.
-DET_THRESHOLD = float(os.environ.get("FINDIT_DET_THRESHOLD", "0.25"))
-TRACK_SIM = float(os.environ.get("FINDIT_TRACK_SIM", "0.80"))   # cosine on crop embeddings
-TRACK_IOU = float(os.environ.get("FINDIT_TRACK_IOU", "0.10"))
-QUERY_MIN_SIM = float(os.environ.get("FINDIT_QUERY_MIN_SIM", "0.05"))
+CFG = load()
 
-# Storage. Only embeddings, text and tiny object crops go here; never frames.
-DATA_DIR = Path(os.environ.get("FINDIT_DATA_DIR", "./data"))
+# ---- names used by the rest of the code -----------------------------------
+DETECTOR: str = CFG["detector"]["backend"]
+OWLV2_MODEL: str = CFG["detector"]["owlv2_model"]
+YOLOE_WEIGHTS: str = CFG["detector"]["yoloe_weights"]
+DET_THRESHOLD: float = CFG["detector"]["threshold"]
+VOCAB: list[str] = CFG["detector"]["vocab"]
+
+EMBEDDER: str = CFG["embedder"]["backend"]
+SIGLIP2_MODEL: str = CFG["embedder"]["siglip2_model"]
+
+VLM_URL: str = CFG["vlm"]["url"]
+VLM_MODEL: str = CFG["vlm"]["model"]
+
+SAMPLE_FPS: float = CFG["pipeline"]["sample_fps"]
+TRACK_SIM: float = CFG["pipeline"]["track_sim"]
+TRACK_IOU: float = CFG["pipeline"]["track_iou"]
+QUERY_MIN_SIM: float = CFG["pipeline"]["query_min_sim"]
+
+HOST: str = CFG["server"]["host"]
+PORT: int = CFG["server"]["port"]
+PUBLIC_HOSTNAME: str = CFG["server"]["public_hostname"]
+DATA_DIR = Path(CFG["server"]["data_dir"])
 DB_PATH = DATA_DIR / "memory.sqlite"
-UPLOAD_DIR = DATA_DIR / "uploads"       # clips are deleted right after processing
-THUMB_SIZE = int(os.environ.get("FINDIT_THUMB", "96"))
+UPLOAD_DIR = DATA_DIR / "uploads"
+THUMB_SIZE: int = CFG["server"]["thumb_size"]
+
+
+def _main(argv: list[str]) -> None:
+    if "--shell" in argv:
+        for section, values in CFG.items():
+            for key, v in values.items():
+                if isinstance(v, list):
+                    v = ",".join(v)
+                print(f"export FINDIT_{section.upper()}_{key.upper()}='{v}'")
+        return
+    print(f"# config file: {CONFIG_PATH} ({'found' if CONFIG_PATH.exists() else 'not found, defaults'})")
+    for section, values in CFG.items():
+        print(f"[{section}]")
+        for key, v in values.items():
+            print(f"  {key} = {v!r}")
+
+
+if __name__ == "__main__":
+    _main(sys.argv[1:])

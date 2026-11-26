@@ -106,7 +106,7 @@ class Owlv2Detector:
 
         self.torch = torch
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        name = "google/owlv2-base-patch16-ensemble"
+        name = config.OWLV2_MODEL
         self.processor = Owlv2Processor.from_pretrained(name)
         self.model = Owlv2ForObjectDetection.from_pretrained(name).to(self.device).eval()
         self.vocab = vocab
@@ -135,7 +135,7 @@ class YoloeDetector:
     def __init__(self, vocab: list[str], threshold: float):
         from ultralytics import YOLOE
 
-        self.model = YOLOE("yoloe-11s-seg.pt")
+        self.model = YOLOE(config.YOLOE_WEIGHTS)
         self.model.set_classes(vocab, self.model.get_text_pe(vocab))
         self.threshold = threshold
 
@@ -151,8 +151,10 @@ class YoloeDetector:
 class Siglip2Embedder:
     """SigLIP2 base: one model for both crop and query embeddings."""
 
-    def __init__(self, name: str = "google/siglip2-base-patch16-224"):
+    def __init__(self, name: str | None = None):
         import torch
+
+        name = name or config.SIGLIP2_MODEL
         from transformers import AutoModel, AutoProcessor
 
         self.torch = torch

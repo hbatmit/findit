@@ -1,0 +1,46 @@
+# findit demo configuration.
+#   cp config.example.toml config.toml   and edit. config.toml is gitignored.
+# The server reads it via FINDIT_CONFIG (default ./config.toml); without a file,
+# built-in defaults run everything with mock models.
+# Any value can be overridden by an env var FINDIT_<SECTION>_<KEY>, e.g.
+#   FINDIT_VLM_URL=  FINDIT_DETECTOR_BACKEND=mock
+
+[server]
+host = "0.0.0.0"
+port = 8000
+public_hostname = "mapmaker-gpu2.csail.mit.edu"   # only used to print the URL
+data_dir = "./data"          # SQLite + transient uploads (deleted after processing)
+thumb_size = 96              # object-crop thumbnail px; 0 stores no pixels at all
+
+[detector]
+backend = "owlv2"            # mock | owlv2 | yoloe
+owlv2_model = "google/owlv2-base-patch16-ensemble"
+yoloe_weights = "yoloe-11s-seg.pt"
+threshold = 0.25
+vocab = [
+  "sunglasses", "glasses", "keys", "headphones", "earbuds", "book", "scissors",
+  "phone", "wallet", "remote control", "mug", "bottle", "laptop", "pen",
+  "notebook", "hat", "bag",
+]
+
+[embedder]
+backend = "siglip2"          # mock | siglip2
+siglip2_model = "google/siglip2-base-patch16-224"
+
+[vlm]
+url = "http://127.0.0.1:8001/v1"   # OpenAI-compatible endpoint; "" uses the mock describer
+model = "Qwen/Qwen3-VL-4B-Instruct"
+# used by scripts/csail_run.sh when it launches vLLM:
+port = 8001
+gpu_memory_utilization = 0.6
+max_model_len = 8192
+
+[pipeline]
+sample_fps = 1.0
+track_sim = 0.80             # cosine on crop embeddings to link detections
+track_iou = 0.10
+query_min_sim = 0.05
+
+[deploy]                      # used by scripts/csail_setup.sh only
+venv = "./.venv"
+hf_home = ""                  # "" -> /scratch/$USER/hf if writable, else HF default
