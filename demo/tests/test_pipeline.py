@@ -63,6 +63,17 @@ def test_last_location_is_latest_sighting(tmp_path, models):
     res = answer_query("j1", "my keys", models, store)
     assert res["found"] and res["label"] == "keys"
 
+    # scene notes were written every 5 s (clip is 6 s long: notes at 0 s and 5 s)
+    notes = store.scene_notes("j1")
+    assert [round(t) for t, _ in notes] == [0, 5], notes
+
+    from server.pipeline import ask, memory_context
+    ctx = memory_context("j1", store)
+    assert "#1 sunglasses" in ctx or "#2 sunglasses" in ctx
+    assert "Scene notes over time" in ctx
+    a = ask("j1", "what was near the keys?", models, store)
+    assert a["answer"] and len(a["used_tracks"]) == 2
+
 
 def test_http_roundtrip(tmp_path, monkeypatch, models):
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
@@ -87,4 +98,7 @@ def test_http_roundtrip(tmp_path, monkeypatch, models):
         assert a["found"] and a["last_seen_s"] >= 4.0
         t = client.get(a["thumb_url"])
         assert t.status_code == 200 and t.headers["content-type"] == "image/jpeg"
+        q = client.post("/api/ask", json={"job_id": job, "question": "what did you see?"}).json()
+        assert q["answer"] and len(q["thumb_urls"]) == 2
+        assert len(client.get(f"/api/jobs/{job}/notes").json()) == 2
         assert client.get("/").status_code == 200

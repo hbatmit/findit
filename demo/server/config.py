@@ -30,7 +30,8 @@ DEFAULTS: dict[str, dict] = {
     "vlm": {"backend": "mock", "model": "Qwen/Qwen3-VL-4B-Instruct", "dtype": "float16",
             "url": "http://127.0.0.1:8001/v1", "port": 8001,
             "gpu_memory_utilization": 0.6, "max_model_len": 8192},
-    "pipeline": {"sample_fps": 1.0, "track_sim": 0.80, "track_iou": 0.10, "query_min_sim": 0.05},
+    "pipeline": {"sample_fps": 1.0, "track_sim": 0.80, "track_iou": 0.10, "query_min_sim": 0.05,
+                 "scene_note_every_s": 5.0, "ask_max_images": 6},
     "deploy": {"gpu": -1, "venv": "./.venv", "hf_home": "", "torch_index": ""},
 }
 
@@ -87,6 +88,8 @@ SAMPLE_FPS: float = CFG["pipeline"]["sample_fps"]
 TRACK_SIM: float = CFG["pipeline"]["track_sim"]
 TRACK_IOU: float = CFG["pipeline"]["track_iou"]
 QUERY_MIN_SIM: float = CFG["pipeline"]["query_min_sim"]
+SCENE_NOTE_EVERY_S: float = CFG["pipeline"]["scene_note_every_s"]
+ASK_MAX_IMAGES: int = CFG["pipeline"]["ask_max_images"]
 
 HOST: str = CFG["server"]["host"]
 PORT: int = CFG["server"]["port"]

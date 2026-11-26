@@ -12,6 +12,18 @@ browser ──upload──▶ FastAPI ──▶ pipeline: sample 1 fps → detec
         ◀──query────  └──▶ text embedding → cosine search → latest matching track
 ```
 
+## What you can ask
+
+- **Where is it?** Retrieval: the query text is embedded with SigLIP2 and matched
+  against object-crop embeddings. The answer is the latest strong match with a
+  time window, nearby objects, and the VLM's location sentence. Fast.
+- **Ask anything.** Free-form: the VLM gets the clip's memory as text (every
+  object with times, location, and neighbours, plus scene notes written every
+  `pipeline.scene_note_every_s` seconds during processing) and the thumbnails
+  of the objects most relevant to the question. It answers from that, and says
+  when the notes don't cover the question. The video itself is never consulted
+  because it no longer exists.
+
 ## Run locally with mock models (no GPU)
 
 ```bash
@@ -78,7 +90,7 @@ how the scripts read them.
 | `detector` | `backend` (mock, owlv2, yoloe), model names, `threshold`, `vocab` |
 | `embedder` | `backend` (mock, siglip2), `siglip2_model` |
 | `vlm` | `backend` (mock, transformers, openai), `model`, `dtype`, and for openai: `url`, `port`, `gpu_memory_utilization`, `max_model_len` |
-| `pipeline` | `sample_fps`, `track_sim`, `track_iou`, `query_min_sim` |
+| `pipeline` | `sample_fps`, `track_sim`, `track_iou`, `query_min_sim`, `scene_note_every_s` (0 = off), `ask_max_images` |
 | `deploy` | `gpu` (nvidia-smi index, -1 for all), `venv`, `hf_home`, `torch_index` (empty = auto-pick CUDA 12.6 wheels on Volta / old drivers) |
 
 ## Layout

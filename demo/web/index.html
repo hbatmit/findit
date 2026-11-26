@@ -51,10 +51,23 @@
   </section>
 
   <section>
+    <label for="ask">3. Ask anything about the clip</label>
+    <div class="row">
+      <input id="askq" type="text" placeholder="What was on the desk? Which objects were near the laptop? What colour is the mug?" disabled>
+      <button id="askbtn" disabled>Ask</button>
+    </div>
+    <div id="askanswer"></div>
+  </section>
+
+  <section>
     <label>Objects remembered from this clip</label>
     <div id="tracks" class="muted">Nothing yet.</div>
   </section>
-  <p class="note">Nothing in this page or the server keeps the video. Thumbnails are crops of the object only.</p>
+  <section>
+    <label>Scene notes</label>
+    <div id="notes" class="muted">Nothing yet.</div>
+  </section>
+  <p class="note">Nothing in this page or the server keeps the video. Thumbnails are crops of the object only. Free-form answers come from the remembered objects and scene notes, not from the video.</p>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -63,8 +76,8 @@ let jobId = null, poll = null;
 $('upload').onclick = async () => {
   const f = $('file').files[0];
   if (!f) { $('jobstatus').textContent = 'Choose a video first.'; return; }
-  $('upload').disabled = true; $('ask').disabled = true; $('q').disabled = true;
-  $('answer').innerHTML = ''; $('tracks').textContent = 'Processing…';
+  $('upload').disabled = true; $('ask').disabled = true; $('q').disabled = true; $('askbtn').disabled = true; $('askq').disabled = true;
+  $('answer').innerHTML = ''; $('askanswer').innerHTML = ''; $('tracks').textContent = 'Processing…'; $('notes').textContent = 'Processing…';
   const fd = new FormData(); fd.append('file', f);
   try {
     const r = await fetch('/api/upload', { method: 'POST', body: fd });
@@ -80,7 +93,7 @@ async function checkJob() {
   $('jobstatus').textContent = `Job ${jobId}: ${j.status} — ${j.frames} frames, ${j.tracks} objects` + (j.message ? ' — ' + j.message : '');
   if (j.status === 'done' || j.status === 'error') {
     clearInterval(poll); $('upload').disabled = false;
-    if (j.status === 'done') { $('ask').disabled = false; $('q').disabled = false; $('q').focus(); loadTracks(); }
+    if (j.status === 'done') { $('ask').disabled = false; $('q').disabled = false; $('askbtn').disabled = false; $('askq').disabled = false; $('q').focus(); loadTracks(); loadNotes(); }
   }
 }
 
@@ -90,6 +103,29 @@ async function loadTracks() {
   $('tracks').innerHTML = '<table><tr><th></th><th>Label</th><th>Seen</th><th>Location</th></tr>' +
     rows.map(r => `<tr><td>${r.has_thumb ? `<img src="/api/tracks/${r.track_id}/thumb" width="48" height="48" style="object-fit:cover;border-radius:6px">` : ''}</td>
       <td>${esc(r.label)}</td><td>${mmss(r.first_seen_s)} – ${mmss(r.last_seen_s)}<br><span class="muted">${r.observations} obs</span></td><td>${esc(r.location || '')}${r.nearby.length ? `<br><span class="muted">Nearby: ${r.nearby.map(esc).join('; ')}</span>` : ''}</td></tr>`).join('') + '</table>';
+}
+
+async function loadNotes() {
+  const notes = await (await fetch(`/api/jobs/${jobId}/notes`)).json();
+  if (!notes.length) { $('notes').textContent = 'No scene notes (disabled in config).'; return; }
+  $('notes').innerHTML = '<table>' + notes.map(n => `<tr><td class="muted" style="white-space:nowrap">${mmss(n.t)}</td><td>${esc(n.text)}</td></tr>`).join('') + '</table>';
+}
+
+$('askbtn').onclick = askAnything;
+$('askq').addEventListener('keydown', e => { if (e.key === 'Enter') askAnything(); });
+
+async function askAnything() {
+  const question = $('askq').value.trim(); if (!question) return;
+  $('askanswer').innerHTML = '<div class="muted">Thinking… (one VLM call, a few seconds)</div>';
+  $('askbtn').disabled = true;
+  try {
+    const r = await fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_id: jobId, question }) });
+    if (!r.ok) throw new Error(await r.text());
+    const a = await r.json();
+    $('askanswer').innerHTML = `<div style="margin-top:10px">${esc(a.answer).replace(/\n/g, '<br>')}</div>` +
+      (a.thumb_urls.length ? `<div class="row" style="margin-top:8px">${a.thumb_urls.map((u, i) => `<img src="${u}" title="object #${a.used_tracks[i]}" width="48" height="48" style="object-fit:cover;border-radius:6px;border:1px solid var(--line)">`).join('')}<span class="muted">objects the answer could see</span></div>` : '');
+  } catch (e) { $('askanswer').innerHTML = `<div class="muted">Failed: ${esc(e.message)}</div>`; }
+  $('askbtn').disabled = false;
 }
 
 $('ask').onclick = ask;

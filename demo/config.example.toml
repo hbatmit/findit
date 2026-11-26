@@ -42,6 +42,8 @@ max_model_len = 8192
 
 [pipeline]
 sample_fps = 1.0
+scene_note_every_s = 5.0     # VLM writes a one-line note about the scene this often (0 = off). Used by "ask anything".
+ask_max_images = 6           # object thumbnails shown to the VLM when answering a free-form question
 track_sim = 0.80             # cosine on crop embeddings to link detections
 track_iou = 0.10
 query_min_sim = 0.05

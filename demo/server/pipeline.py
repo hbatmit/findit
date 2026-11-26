@@ -153,13 +153,28 @@ def thumb_jpeg(img: np.ndarray, size: int) -> bytes:
     return buf.tobytes()
 
 
+def downscale(frame: np.ndarray, max_side: int = 640) -> np.ndarray:
+    h, w = frame.shape[:2]
+    s = max_side / max(h, w)
+    return frame if s >= 1 else cv2.resize(frame, (int(w * s), int(h * s)))
+
+
 def process_clip(path: Path, job_id: str, models: Models, store: Store,
                  delete_after: bool = True, progress=None) -> int:
     """Run the pipeline on one clip. Returns number of tracks written."""
     tracks: list[Track] = []
     n_frames = 0
+    last_note_t = -1e9
     for t, frame in sample_frames(path, config.SAMPLE_FPS):
         n_frames += 1
+        # Scene notes: a one-line text description of the whole frame every few
+        # seconds, so free-form questions have more than object tracks to go on.
+        if config.SCENE_NOTE_EVERY_S > 0 and t - last_note_t >= config.SCENE_NOTE_EVERY_S:
+            last_note_t = t
+            try:
+                store.add_scene_note(job_id, t, models.describer.caption_scene(downscale(frame)))
+            except Exception as e:  # noqa: BLE001
+                store.add_scene_note(job_id, t, f"(no scene note: {e.__class__.__name__})")
         dets = models.detector.detect(frame)
         if dets:
             crops = [crop(frame, d.box, pad=0.1, square=True) for d in dets]
@@ -246,6 +261,50 @@ def answer_query(job_id: str, text: str, models: Models, store: Store, k: int = 
         "candidates": [{"track_id": r.id, "label": r.label, "last_seen_s": round(r.last_t, 2),
                         "similarity": round(s, 3)} for r, s in hits],
     }
+
+
+def memory_context(job_id: str, store: Store) -> str:
+    """Everything remembered about a clip, as text for the VLM."""
+    rows = store.tracks(job_id)
+    notes = store.scene_notes(job_id)
+    end = max([r.last_t for r in rows] + [t for t, _ in notes] + [0.0])
+    lines = [f"Clip length: about {mmss(end)}. Frames were sampled about once per second.", "",
+             "Objects remembered (id, label, when seen, sightings, where, what was nearby):"]
+    if not rows:
+        lines.append("(none detected)")
+    for r in rows:
+        nb = nearby_phrases(json.loads(r.neighbors) if r.neighbors else [])
+        line = f"#{r.id} {r.label} — seen {mmss(r.first_t)}–{mmss(r.last_t)} ({r.n_obs} sightings)"
+        if r.location:
+            line += f" — {r.location}"
+        if nb:
+            line += " — nearby: " + "; ".join(nb)
+        lines.append(line)
+    if notes:
+        lines += ["", "Scene notes over time:"]
+        lines += [f"{mmss(t)} — {text}" for t, text in notes]
+    return "\n".join(lines)
+
+
+def ask(job_id: str, question: str, models: Models, store: Store) -> dict:
+    """Free-form question about the clip, answered by the VLM from the memory
+    (object tracks, scene notes) plus the thumbnails of the most relevant objects."""
+    context = memory_context(job_id, store)
+    rows = store.tracks(job_id)
+    images, used = [], []
+    if rows and config.ASK_MAX_IMAGES > 0:
+        q = models.embedder.embed_text([question])[0]
+        for row, _sim in store.search(job_id, q, k=config.ASK_MAX_IMAGES):
+            if row.thumb:
+                img = cv2.imdecode(np.frombuffer(row.thumb, np.uint8), cv2.IMREAD_COLOR)
+                if img is not None:
+                    images.append(img)
+                    used.append(row.id)
+    if used:
+        context += "\n\nAttached images, in order: " + ", ".join(
+            f"image {i + 1} = object #{tid}" for i, tid in enumerate(used))
+    answer = models.describer.answer(question, context, images)
+    return {"question": question, "answer": answer, "used_tracks": used}
 
 
 def run_cli():

@@ -37,6 +37,13 @@ CREATE TABLE IF NOT EXISTS track (
     neighbors TEXT                   -- JSON: other objects in the last frame, relative position
 );
 CREATE INDEX IF NOT EXISTS track_job ON track(job_id);
+CREATE TABLE IF NOT EXISTS scene_note (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL,
+    t REAL NOT NULL,                 -- seconds into the clip
+    text TEXT NOT NULL               -- VLM one-line description of the scene (no people)
+);
+CREATE INDEX IF NOT EXISTS scene_note_job ON scene_note(job_id);
 """
 
 
@@ -110,6 +117,20 @@ class Store:
             out.append(TrackRow(r[0], r[1], r[2], r[3], r[4], tuple(int(v) for v in r[5].split(",")),
                                 r[6], emb, r[9], r[10], r[11]))
         return out
+
+    def thumb(self, track_id: int) -> bytes | None:
+        row = self._conn.execute("SELECT thumb FROM track WHERE id=?", (track_id,)).fetchone()
+        return row[0] if row else None
+
+    # ---- scene notes
+    def add_scene_note(self, job_id: str, t: float, text: str) -> None:
+        with self._lock:
+            self._conn.execute("INSERT INTO scene_note(job_id,t,text) VALUES(?,?,?)", (job_id, t, text))
+            self._conn.commit()
+
+    def scene_notes(self, job_id: str) -> list[tuple[float, str]]:
+        cur = self._conn.execute("SELECT t,text FROM scene_note WHERE job_id=? ORDER BY t", (job_id,))
+        return [(r[0], r[1]) for r in cur.fetchall()]
 
     def search(self, job_id: str, query_emb: np.ndarray, k: int = 5) -> list[tuple[TrackRow, float]]:
         """Cosine similarity over all tracks of a job. Fine for demo sizes."""

@@ -86,11 +86,33 @@ class MockEmbedder:
         return _l2(np.stack(vecs))
 
 
+SCENE_PROMPT = (
+    "In one or two short sentences, describe this scene: the kind of room or area, the main "
+    "surfaces and furniture, and which notable objects are where. Do not describe people."
+)
+
+ANSWER_PROMPT = (
+    "You answer questions about a short video using only the notes below, which were extracted "
+    "from it automatically. The video itself is no longer available. Times are minutes:seconds "
+    "into the clip. If the notes do not contain enough to answer, say what is missing rather than "
+    "guessing. Refer to objects by their label and when they were seen. Answer in a few sentences.\n\n"
+    "{context}\n\nQuestion: {question}"
+)
+
+
 class MockDescriber:
     def describe(self, crop: np.ndarray, context: np.ndarray, label: str) -> str:
         h, w = context.shape[:2]
         ch, cw = crop.shape[:2]
         return f"a {label} resting on a surface (mock description, crop {cw}x{ch} in a {w}x{h} context)"
+
+    def caption_scene(self, frame: np.ndarray) -> str:
+        h, w = frame.shape[:2]
+        return f"a room seen in a {w}x{h} frame (mock scene note)"
+
+    def answer(self, question: str, context: str, images: list[np.ndarray]) -> str:
+        lines = [l for l in context.splitlines() if l.startswith("#")]
+        return f"(mock answer to '{question}' using {len(lines)} remembered objects and {len(images)} images) " + " | ".join(lines[:3])
 
 
 # --------------------------------------------------------------------------- real
@@ -207,23 +229,23 @@ class OpenAIVlmDescriber:
         ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])
         return "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode()
 
-    def describe(self, crop: np.ndarray, context: np.ndarray, label: str) -> str:
-        body = {
-            "model": self.model,
-            "max_tokens": 80,
-            "temperature": 0.1,
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": self._data_url(crop)}},
-                    {"type": "image_url", "image_url": {"url": self._data_url(context)}},
-                    {"type": "text", "text": self.PROMPT.format(label=label)},
-                ],
-            }],
-        }
+    def _chat(self, images: list[np.ndarray], text: str, max_tokens: int) -> str:
+        content = [{"type": "image_url", "image_url": {"url": self._data_url(im)}} for im in images]
+        content.append({"type": "text", "text": text})
+        body = {"model": self.model, "max_tokens": max_tokens, "temperature": 0.1,
+                "messages": [{"role": "user", "content": content}]}
         r = self.client.post("/chat/completions", json=body)
         r.raise_for_status()
         return r.json()["choices"][0]["message"]["content"].strip()
+
+    def describe(self, crop: np.ndarray, context: np.ndarray, label: str) -> str:
+        return self._chat([crop, context], self.PROMPT.format(label=label), 80)
+
+    def caption_scene(self, frame: np.ndarray) -> str:
+        return self._chat([frame], SCENE_PROMPT, 80)
+
+    def answer(self, question: str, context: str, images: list[np.ndarray]) -> str:
+        return self._chat(images, ANSWER_PROMPT.format(context=context, question=question), 300)
 
 
 class TransformersVlmDescriber:
@@ -243,22 +265,28 @@ class TransformersVlmDescriber:
         self.processor = AutoProcessor.from_pretrained(model_name)
         self.model = AutoModelForImageTextToText.from_pretrained(model_name, dtype=td).to(self.device).eval()
 
-    def describe(self, crop: np.ndarray, context: np.ndarray, label: str) -> str:
+    def _chat(self, images: list[np.ndarray], text: str, max_new_tokens: int) -> str:
         from PIL import Image
 
-        imgs = [Image.fromarray(cv2.cvtColor(x, cv2.COLOR_BGR2RGB)) for x in (crop, context)]
-        messages = [{"role": "user", "content": [
-            {"type": "image", "image": imgs[0]},
-            {"type": "image", "image": imgs[1]},
-            {"type": "text", "text": self.PROMPT.format(label=label)},
-        ]}]
+        content = [{"type": "image", "image": Image.fromarray(cv2.cvtColor(x, cv2.COLOR_BGR2RGB))} for x in images]
+        content.append({"type": "text", "text": text})
+        messages = [{"role": "user", "content": content}]
         inputs = self.processor.apply_chat_template(
             messages, add_generation_prompt=True, tokenize=True, return_dict=True, return_tensors="pt"
         ).to(self.device)
         with self.torch.no_grad():
-            out = self.model.generate(**inputs, max_new_tokens=80, do_sample=False)
+            out = self.model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
         gen = out[0, inputs["input_ids"].shape[1]:]
         return self.processor.decode(gen, skip_special_tokens=True).strip()
+
+    def describe(self, crop: np.ndarray, context: np.ndarray, label: str) -> str:
+        return self._chat([crop, context], self.PROMPT.format(label=label), 80)
+
+    def caption_scene(self, frame: np.ndarray) -> str:
+        return self._chat([frame], SCENE_PROMPT, 80)
+
+    def answer(self, question: str, context: str, images: list[np.ndarray]) -> str:
+        return self._chat(images, ANSWER_PROMPT.format(context=context, question=question), 300)
 
 
 # --------------------------------------------------------------------------- factories

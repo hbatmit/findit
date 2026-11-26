@@ -25,7 +25,7 @@ from pydantic import BaseModel
 
 from . import config
 from .models import make_describer, make_detector, make_embedder
-from .pipeline import Models, answer_query, nearby_phrases, process_clip
+from .pipeline import Models, answer_query, ask, nearby_phrases, process_clip
 from .store import Store
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -93,11 +93,17 @@ def job_tracks(job_id: str):
 
 @app.get("/api/tracks/{track_id}/thumb")
 def track_thumb(track_id: int):
-    cur = store._conn.execute("SELECT thumb FROM track WHERE id=?", (track_id,))
-    row = cur.fetchone()
-    if not row or row[0] is None:
+    thumb = store.thumb(track_id)
+    if thumb is None:
         raise HTTPException(404, "no thumbnail")
-    return Response(content=row[0], media_type="image/jpeg")
+    return Response(content=thumb, media_type="image/jpeg")
+
+
+@app.get("/api/jobs/{job_id}/notes")
+def job_notes(job_id: str):
+    if not store.get_job(job_id):
+        raise HTTPException(404, "unknown job")
+    return [{"t": round(t, 2), "text": text} for t, text in store.scene_notes(job_id)]
 
 
 class Query(BaseModel):
@@ -115,6 +121,23 @@ def query(q: Query):
     res = answer_query(q.job_id, q.text, models, store)
     if res.get("found"):
         res["thumb_url"] = f"/api/tracks/{res['track_id']}/thumb"
+    return res
+
+
+class Question(BaseModel):
+    job_id: str
+    question: str
+
+
+@app.post("/api/ask")
+def ask_route(q: Question):
+    job = store.get_job(q.job_id)
+    if not job:
+        raise HTTPException(404, "unknown job")
+    if job["status"] != "done":
+        raise HTTPException(409, f"job is {job['status']}")
+    res = ask(q.job_id, q.question.strip(), models, store)
+    res["thumb_urls"] = [f"/api/tracks/{tid}/thumb" for tid in res["used_tracks"]]
     return res
 
 
