@@ -167,10 +167,12 @@ def process_clip(path: Path, job_id: str, models: Models, store: Store,
             embs = models.embedder.embed_images(crops, [d.label for d in dets])
             link(tracks, dets, embs, crops, contexts, t, config.TRACK_SIM, config.TRACK_IOU)
         if progress:
-            progress(n_frames, len(tracks))
+            progress(n_frames, len(tracks), f"sampling frames ({n_frames} so far)")
 
     # Describe each track's last sighting. This is the only VLM call per object.
-    for tr in tracks:
+    for i, tr in enumerate(tracks, 1):
+        if progress:
+            progress(n_frames, len(tracks), f"describing object {i} of {len(tracks)} with the VLM")
         try:
             tr_location = models.describer.describe(tr.last_crop, tr.last_context, tr.label)
         except Exception as e:  # VLM down: keep the track, back-fill later
@@ -185,7 +187,7 @@ def process_clip(path: Path, job_id: str, models: Models, store: Store,
             path.unlink()
         except FileNotFoundError:
             pass
-    store.update_job(job_id, frames=n_frames, tracks=len(tracks))
+    store.update_job(job_id, frames=n_frames, tracks=len(tracks), message=None)
     return len(tracks)
 
 

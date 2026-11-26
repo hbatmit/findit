@@ -51,7 +51,7 @@ def _run_job(job_id: str, path: Path):
     store.update_job(job_id, status="processing")
     try:
         process_clip(path, job_id, models, store,
-                     progress=lambda f, t: store.update_job(job_id, frames=f, tracks=t))
+                     progress=lambda f, t, msg: store.update_job(job_id, frames=f, tracks=t, message=msg))
         store.update_job(job_id, status="done")
     except Exception as e:  # noqa: BLE001
         store.update_job(job_id, status="error", message=f"{e.__class__.__name__}: {e}")
