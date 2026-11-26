@@ -6,11 +6,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -f config.toml ] || { echo "no config.toml: run scripts/csail_setup.sh first" >&2; exit 1; }
-eval "$(python3 -m server.config --shell)"
-VENV="$FINDIT_DEPLOY_VENV"
-[ -d "$VENV" ] || { echo "no venv at $VENV: run scripts/csail_setup.sh first" >&2; exit 1; }
+[ -f .findit-venv ] || { echo "no .findit-venv: run scripts/csail_setup.sh first" >&2; exit 1; }
+VENV="$(cat .findit-venv)"
+[ -x "$VENV/bin/python" ] || { echo "no venv at $VENV: run scripts/csail_setup.sh first" >&2; exit 1; }
 # shellcheck disable=SC1091
 . "$VENV/bin/activate"
+eval "$(python -m server.config --shell)"   # venv python: has tomllib/tomli
 [ -n "$FINDIT_DEPLOY_HF_HOME" ] && export HF_HOME="$FINDIT_DEPLOY_HF_HOME"
 [ -z "${HF_HOME:-}" ] && [ -d "/scratch/$USER/hf" ] && export HF_HOME="/scratch/$USER/hf"
 mkdir -p logs

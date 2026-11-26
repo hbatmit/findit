@@ -63,5 +63,6 @@ for repo in repos:
     snapshot_download(repo)
 PYEOF
 
+echo "$VENV" > .findit-venv   # lets csail_run.sh find the venv before reading config.toml
 echo
 echo "Setup done. Start with:  bash scripts/csail_run.sh"
