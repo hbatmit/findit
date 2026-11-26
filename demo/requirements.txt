@@ -12,6 +12,6 @@ tomli>=2.0; python_version < "3.11"
 pytest>=8
 
 # Real models (install on the CSAIL GPU box):
-#   pip install torch torchvision transformers>=4.57 pillow
+#   pip install torch torchvision "transformers>=4.57" pillow scipy
 #   optional detector: pip install ultralytics   (YOLOE; AGPL-3.0)
 #   VLM server:        pip install vllm   then see README

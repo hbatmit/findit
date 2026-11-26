@@ -46,7 +46,7 @@ fi
 . "$VENV/bin/activate"
 pip install -q --upgrade pip
 pip install -q -r requirements.txt
-pip install -q torch torchvision "transformers>=4.57" pillow accelerate huggingface_hub
+pip install -q torch torchvision "transformers>=4.57" pillow scipy accelerate huggingface_hub
 if [ "$FINDIT_VLM_BACKEND" = "openai" ]; then
   pip install -q vllm || echo "WARNING: vllm install failed; set vlm.backend = \"transformers\" in config.toml instead."
 fi
