@@ -77,9 +77,9 @@ how the scripts read them.
 | `server` | `host`, `port`, `public_hostname` (for the printed URL), `data_dir`, `thumb_size` (0 stores no pixels) |
 | `detector` | `backend` (mock, owlv2, yoloe), model names, `threshold`, `vocab` |
 | `embedder` | `backend` (mock, siglip2), `siglip2_model` |
-| `vlm` | `url` (empty uses mock descriptions), `model`, `port`, `gpu_memory_utilization`, `max_model_len` |
+| `vlm` | `backend` (mock, transformers, openai), `model`, `dtype`, and for openai: `url`, `port`, `gpu_memory_utilization`, `max_model_len` |
 | `pipeline` | `sample_fps`, `track_sim`, `track_iou`, `query_min_sim` |
-| `deploy` | `venv`, `hf_home` (used by the scripts only) |
+| `deploy` | `gpu` (nvidia-smi index, -1 for all), `venv`, `hf_home` (used by the scripts only) |
 
 ## Layout
 
@@ -112,9 +112,9 @@ See `../docs/ARCHITECTURE.md` for where this grows into the full system.
 ssh <gpu-host>
 git clone -b claude/object-location-tracking-arch-5c03bb https://github.com/hbatmit/findit
 cd findit/demo
-cp config.example.toml config.toml   # set server.public_hostname, vlm.model, etc.
+cp config.example.toml config.toml   # set deploy.gpu, deploy.venv/hf_home (local disk), server.public_hostname
 bash scripts/csail_setup.sh          # venv, deps, model download into /scratch/$USER/hf when available
-bash scripts/csail_run.sh            # vLLM + API in tmux; prints the URL
+bash scripts/csail_run.sh            # API (and vLLM if vlm.backend = "openai") in tmux; prints the URL
 ```
 
 The page is served at `http://<server.public_hostname>:<server.port>/`, reachable

@@ -27,10 +27,11 @@ DEFAULTS: dict[str, dict] = {
                            "phone", "wallet", "remote control", "mug", "bottle", "laptop", "pen",
                            "notebook", "hat", "bag"]},
     "embedder": {"backend": "mock", "siglip2_model": "google/siglip2-base-patch16-224"},
-    "vlm": {"url": "", "model": "Qwen/Qwen3-VL-4B-Instruct", "port": 8001,
+    "vlm": {"backend": "mock", "model": "Qwen/Qwen3-VL-4B-Instruct", "dtype": "float16",
+            "url": "http://127.0.0.1:8001/v1", "port": 8001,
             "gpu_memory_utilization": 0.6, "max_model_len": 8192},
     "pipeline": {"sample_fps": 1.0, "track_sim": 0.80, "track_iou": 0.10, "query_min_sim": 0.05},
-    "deploy": {"venv": "./.venv", "hf_home": ""},
+    "deploy": {"gpu": -1, "venv": "./.venv", "hf_home": ""},
 }
 
 CONFIG_PATH = Path(os.environ.get("FINDIT_CONFIG", "config.toml"))
@@ -77,8 +78,10 @@ VOCAB: list[str] = CFG["detector"]["vocab"]
 EMBEDDER: str = CFG["embedder"]["backend"]
 SIGLIP2_MODEL: str = CFG["embedder"]["siglip2_model"]
 
+VLM_BACKEND: str = CFG["vlm"]["backend"]
 VLM_URL: str = CFG["vlm"]["url"]
 VLM_MODEL: str = CFG["vlm"]["model"]
+VLM_DTYPE: str = CFG["vlm"]["dtype"]
 
 SAMPLE_FPS: float = CFG["pipeline"]["sample_fps"]
 TRACK_SIM: float = CFG["pipeline"]["track_sim"]

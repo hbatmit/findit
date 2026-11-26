@@ -28,9 +28,14 @@ backend = "siglip2"          # mock | siglip2
 siglip2_model = "google/siglip2-base-patch16-224"
 
 [vlm]
-url = "http://127.0.0.1:8001/v1"   # OpenAI-compatible endpoint; "" uses the mock describer
+# backend: "transformers" runs the model in-process (simplest; works on V100),
+#          "openai" talks to an OpenAI-compatible server (vLLM, llama.cpp) at `url`,
+#          "mock" returns placeholder descriptions.
+backend = "transformers"
 model = "Qwen/Qwen3-VL-4B-Instruct"
-# used by scripts/csail_run.sh when it launches vLLM:
+dtype = "float16"            # V100/T4: float16. Ampere or newer: bfloat16.
+# only for backend = "openai"; scripts/csail_run.sh launches vLLM with these:
+url = "http://127.0.0.1:8001/v1"
 port = 8001
 gpu_memory_utilization = 0.6
 max_model_len = 8192
@@ -42,7 +47,8 @@ track_iou = 0.10
 query_min_sim = 0.05
 
 [deploy]                      # used by the scripts only. "~" and "$USER" are expanded.
+gpu = 3                       # index from nvidia-smi; pick one that shows ~0 MiB used. -1 = all
 # Keep the venv and the model cache on local disk, not in an AFS home directory:
 # torch + vLLM is ~10 GB of packages and AFS is slow and quota-limited.
-venv = "/scratch/$USER/findit-venv"
+venv = "/scratch/$USER/findit-venv"    # if there is no /scratch: df -h | grep ^/dev  and pick a local disk
 hf_home = "/scratch/$USER/hf"

@@ -223,6 +223,41 @@ class OpenAIVlmDescriber:
         return r.json()["choices"][0]["message"]["content"].strip()
 
 
+class TransformersVlmDescriber:
+    """Runs the VLM in-process with Hugging Face transformers. Slower per call
+    than vLLM but has no server to manage and works on older GPUs (V100/T4)
+    with dtype=float16. Needs transformers >= 4.57 for Qwen3-VL."""
+
+    PROMPT = OpenAIVlmDescriber.PROMPT
+
+    def __init__(self, model_name: str, dtype: str = "float16"):
+        import torch
+        from transformers import AutoModelForImageTextToText, AutoProcessor
+
+        self.torch = torch
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        td = {"float16": torch.float16, "bfloat16": torch.bfloat16, "float32": torch.float32}[dtype]
+        self.processor = AutoProcessor.from_pretrained(model_name)
+        self.model = AutoModelForImageTextToText.from_pretrained(model_name, dtype=td).to(self.device).eval()
+
+    def describe(self, crop: np.ndarray, context: np.ndarray, label: str) -> str:
+        from PIL import Image
+
+        imgs = [Image.fromarray(cv2.cvtColor(x, cv2.COLOR_BGR2RGB)) for x in (crop, context)]
+        messages = [{"role": "user", "content": [
+            {"type": "image", "image": imgs[0]},
+            {"type": "image", "image": imgs[1]},
+            {"type": "text", "text": self.PROMPT.format(label=label)},
+        ]}]
+        inputs = self.processor.apply_chat_template(
+            messages, add_generation_prompt=True, tokenize=True, return_dict=True, return_tensors="pt"
+        ).to(self.device)
+        with self.torch.no_grad():
+            out = self.model.generate(**inputs, max_new_tokens=80, do_sample=False)
+        gen = out[0, inputs["input_ids"].shape[1]:]
+        return self.processor.decode(gen, skip_special_tokens=True).strip()
+
+
 # --------------------------------------------------------------------------- factories
 
 
@@ -246,6 +281,8 @@ def make_embedder():
 
 
 def make_describer():
-    if config.VLM_URL:
+    if config.VLM_BACKEND == "transformers":
+        return TransformersVlmDescriber(config.VLM_MODEL, config.VLM_DTYPE)
+    if config.VLM_BACKEND == "openai" and config.VLM_URL:
         return OpenAIVlmDescriber(config.VLM_URL, config.VLM_MODEL)
     return MockDescriber()

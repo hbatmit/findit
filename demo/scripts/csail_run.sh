@@ -14,6 +14,9 @@ VENV="$FINDIT_DEPLOY_VENV"
 [ -n "$FINDIT_DEPLOY_HF_HOME" ] && export HF_HOME="$FINDIT_DEPLOY_HF_HOME"
 [ -z "${HF_HOME:-}" ] && [ -d "/scratch/$USER/hf" ] && export HF_HOME="/scratch/$USER/hf"
 mkdir -p logs
+export CUDA_DEVICE_ORDER=PCI_BUS_ID            # make CUDA indices match nvidia-smi
+[ "$FINDIT_DEPLOY_GPU" != "-1" ] && export CUDA_VISIBLE_DEVICES="$FINDIT_DEPLOY_GPU"
+GPU_ENV="export CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES='${CUDA_VISIBLE_DEVICES:-}' HF_HOME='${HF_HOME:-}'"
 
 case "${1:-start}" in
   stop)
@@ -27,24 +30,25 @@ esac
 command -v tmux >/dev/null || { echo "tmux is required" >&2; exit 1; }
 
 VLM_HEALTH="http://127.0.0.1:${FINDIT_VLM_PORT}/v1/models"
-if [ -n "$FINDIT_VLM_URL" ] && ! curl -sf "$VLM_HEALTH" >/dev/null; then
+if [ "$FINDIT_VLM_BACKEND" = "openai" ] && ! curl -sf "$VLM_HEALTH" >/dev/null; then
   tmux kill-session -t findit-vllm 2>/dev/null || true
   tmux new-session -d -s findit-vllm \
-    "source '$VENV/bin/activate' && export HF_HOME='${HF_HOME:-}' && \
-     vllm serve '$FINDIT_VLM_MODEL' --port $FINDIT_VLM_PORT --host 127.0.0.1 \
+    "source '$VENV/bin/activate' && $GPU_ENV && \
+     vllm serve '$FINDIT_VLM_MODEL' --port $FINDIT_VLM_PORT --host 127.0.0.1 --dtype $FINDIT_VLM_DTYPE \
        --max-model-len $FINDIT_VLM_MAX_MODEL_LEN --limit-mm-per-prompt '{\"image\":2}' \
        --gpu-memory-utilization $FINDIT_VLM_GPU_MEMORY_UTILIZATION 2>&1 | tee logs/vllm.log"
   echo -n "waiting for vLLM (first start takes a few minutes)"
   for _ in $(seq 1 120); do curl -sf "$VLM_HEALTH" >/dev/null && break; echo -n "."; sleep 5; done; echo
   curl -sf "$VLM_HEALTH" >/dev/null || { echo "vLLM did not come up; see logs/vllm.log" >&2; exit 1; }
 fi
-[ -n "$FINDIT_VLM_URL" ] && echo "VLM up on :${FINDIT_VLM_PORT}" || echo "vlm.url is empty: using mock descriptions"
+echo "VLM backend: $FINDIT_VLM_BACKEND ($FINDIT_VLM_MODEL, $FINDIT_VLM_DTYPE)"
 
 tmux kill-session -t findit-api 2>/dev/null || true
 tmux new-session -d -s findit-api \
-  "source '$VENV/bin/activate' && export HF_HOME='${HF_HOME:-}' && \
+  "source '$VENV/bin/activate' && $GPU_ENV && \
    uvicorn server.app:app --host $FINDIT_SERVER_HOST --port $FINDIT_SERVER_PORT 2>&1 | tee logs/api.log"
-for _ in $(seq 1 60); do curl -s -o /dev/null "http://127.0.0.1:${FINDIT_SERVER_PORT}/" && break; sleep 2; done
+echo -n "waiting for the API (loads the models; a few minutes on first start)"
+for _ in $(seq 1 150); do curl -s -o /dev/null "http://127.0.0.1:${FINDIT_SERVER_PORT}/" && break; echo -n "."; sleep 4; done
 
 echo
 echo "findit demo:  http://${FINDIT_SERVER_PUBLIC_HOSTNAME:-$(hostname -f)}:${FINDIT_SERVER_PORT}/"
