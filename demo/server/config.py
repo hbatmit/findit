@@ -34,6 +34,7 @@ DEFAULTS: dict[str, dict] = {
 }
 
 CONFIG_PATH = Path(os.environ.get("FINDIT_CONFIG", "config.toml"))
+PATH_KEYS = {"data_dir", "venv", "hf_home"}   # "~" and "$USER" are expanded in these
 
 
 def _coerce(value: str, like):
@@ -59,6 +60,8 @@ def load(path: Path = CONFIG_PATH) -> dict[str, dict]:
             env = os.environ.get(f"FINDIT_{section}_{key}".upper())
             if env is not None:
                 values[key] = _coerce(env, default)
+            if key in PATH_KEYS and isinstance(values[key], str) and values[key]:
+                values[key] = os.path.expandvars(os.path.expanduser(values[key]))
     return cfg
 
 

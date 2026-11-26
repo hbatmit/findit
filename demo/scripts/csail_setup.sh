@@ -31,7 +31,17 @@ echo "HF cache: $HF_HOME   (set deploy.hf_home in config.toml to change)"
 
 # --- python env -------------------------------------------------------------
 echo "python: $PY ($("$PY" --version))"
-[ -d "$VENV" ] || "$PY" -m venv "$VENV"
+case "$VENV" in /afs/*) echo "WARNING: deploy.venv is under /afs; set it to local disk (e.g. /scratch/$USER/findit-venv) in config.toml" ;; esac
+mkdir -p "$(dirname "$VENV")"
+if [ ! -x "$VENV/bin/python" ]; then
+  # On Ubuntu, `python3.X -m venv` fails at ensurepip when python3.X-venv is not
+  # installed. Create the venv without pip and bootstrap pip ourselves instead.
+  if ! "$PY" -m venv "$VENV" 2>/dev/null; then
+    rm -rf "$VENV"
+    "$PY" -m venv --without-pip "$VENV"
+    curl -sSL https://bootstrap.pypa.io/get-pip.py | "$VENV/bin/python"
+  fi
+fi
 # shellcheck disable=SC1091
 . "$VENV/bin/activate"
 pip install -q --upgrade pip
