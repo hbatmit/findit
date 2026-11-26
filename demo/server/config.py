@@ -12,8 +12,12 @@ from __future__ import annotations
 
 import os
 import sys
-import tomllib
 from pathlib import Path
+
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:  # Ubuntu 22.04 ships 3.10
+    import tomli as tomllib
 
 DEFAULTS: dict[str, dict] = {
     "server": {"host": "0.0.0.0", "port": 8000, "public_hostname": "", "data_dir": "./data", "thumb_size": 96},
