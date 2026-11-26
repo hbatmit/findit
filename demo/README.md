@@ -103,3 +103,19 @@ demo/
 - One worker thread; one clip processed at a time.
 
 See `../docs/ARCHITECTURE.md` for where this grows into the full system.
+
+## CSAIL GPU host (mapmaker-gpu2)
+
+```bash
+ssh mapmaker-gpu2.csail.mit.edu
+git clone -b claude/object-location-tracking-arch-5c03bb https://github.com/hbatmit/findit
+cd findit/demo
+bash scripts/csail_setup.sh      # venv, deps, model download (~10 min, ~15 GB in /scratch/$USER/hf)
+bash scripts/csail_run.sh        # vLLM + API in tmux; prints the URL
+```
+
+Then open http://mapmaker-gpu2.csail.mit.edu:8000/ from the CSAIL network or VPN.
+`bash scripts/csail_run.sh logs` tails both services; `stop` shuts them down.
+Setup picks Qwen3-VL-4B if the GPU has ≥ 14 GB, else the 2B model; override
+with `FINDIT_VLM_MODEL=...` before running setup. If the GPU is shared, lower
+`--gpu-memory-utilization` in `scripts/csail_run.sh`.
