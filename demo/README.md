@@ -79,7 +79,7 @@ how the scripts read them.
 | `embedder` | `backend` (mock, siglip2), `siglip2_model` |
 | `vlm` | `backend` (mock, transformers, openai), `model`, `dtype`, and for openai: `url`, `port`, `gpu_memory_utilization`, `max_model_len` |
 | `pipeline` | `sample_fps`, `track_sim`, `track_iou`, `query_min_sim` |
-| `deploy` | `gpu` (nvidia-smi index, -1 for all), `venv`, `hf_home` (used by the scripts only) |
+| `deploy` | `gpu` (nvidia-smi index, -1 for all), `venv`, `hf_home`, `torch_index` (empty = auto-pick CUDA 12.6 wheels on Volta / old drivers) |
 
 ## Layout
 

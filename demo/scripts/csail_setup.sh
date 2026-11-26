@@ -46,7 +46,31 @@ fi
 . "$VENV/bin/activate"
 pip install -q --upgrade pip
 pip install -q -r requirements.txt
-pip install -q torch torchvision "transformers>=4.57" pillow scipy accelerate huggingface_hub
+# --- torch wheel selection ----------------------------------------------------
+# Default PyPI torch wheels are built for CUDA 13 (driver >= 580) and, from 2.15,
+# no longer run on Volta (V100, compute capability 7.0). Older drivers or Volta
+# GPUs need the CUDA 12.6 wheels, whose last release is torch 2.14.
+DRIVER_MAJOR=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1 | cut -d. -f1)
+MIN_CC=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | sort -n | head -1)
+TORCH_SPEC="torch torchvision"
+TORCH_INDEX=""
+if [ -n "$FINDIT_DEPLOY_TORCH_INDEX" ]; then
+  TORCH_INDEX="--index-url $FINDIT_DEPLOY_TORCH_INDEX"
+elif [ "${DRIVER_MAJOR:-0}" -lt 580 ] || [ "$(echo "${MIN_CC:-9} < 8.0" | bc)" = 1 ]; then
+  TORCH_SPEC="torch==2.14.* torchvision==0.29.*"
+  TORCH_INDEX="--index-url https://download.pytorch.org/whl/cu126"
+fi
+echo "driver $DRIVER_MAJOR, min compute capability $MIN_CC -> pip install $TORCH_SPEC $TORCH_INDEX"
+# shellcheck disable=SC2086
+pip install -q $TORCH_SPEC $TORCH_INDEX
+pip install -q "transformers>=4.57" pillow scipy accelerate huggingface_hub
+python - <<'PYEOF'
+import torch
+ok = torch.cuda.is_available()
+print("torch", torch.__version__, "CUDA build", torch.version.cuda, "| GPU visible:", ok)
+if not ok:
+    raise SystemExit("ERROR: torch cannot see the GPU. Check the driver / wheel pairing (deploy.torch_index in config.toml).")
+PYEOF
 if [ "$FINDIT_VLM_BACKEND" = "openai" ]; then
   pip install -q vllm || echo "WARNING: vllm install failed; set vlm.backend = \"transformers\" in config.toml instead."
 fi

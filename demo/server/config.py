@@ -31,7 +31,7 @@ DEFAULTS: dict[str, dict] = {
             "url": "http://127.0.0.1:8001/v1", "port": 8001,
             "gpu_memory_utilization": 0.6, "max_model_len": 8192},
     "pipeline": {"sample_fps": 1.0, "track_sim": 0.80, "track_iou": 0.10, "query_min_sim": 0.05},
-    "deploy": {"gpu": -1, "venv": "./.venv", "hf_home": ""},
+    "deploy": {"gpu": -1, "venv": "./.venv", "hf_home": "", "torch_index": ""},
 }
 
 CONFIG_PATH = Path(os.environ.get("FINDIT_CONFIG", "config.toml"))

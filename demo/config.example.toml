@@ -48,6 +48,7 @@ query_min_sim = 0.05
 
 [deploy]                      # used by the scripts only. "~" and "$USER" are expanded.
 gpu = 3                       # index from nvidia-smi; pick one that shows ~0 MiB used. -1 = all
+torch_index = ""              # "" = auto: CUDA 12.6 wheels (torch 2.14) on Volta or drivers < 580, else PyPI default
 # Keep the venv and the model cache on local disk, not in an AFS home directory:
 # torch + vLLM is ~10 GB of packages and AFS is slow and quota-limited.
 venv = "/scratch/$USER/findit-venv"    # if there is no /scratch: df -h | grep ^/dev  and pick a local disk
