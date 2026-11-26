@@ -17,7 +17,19 @@ eval "$(python -m server.config --shell)"   # venv python: has tomllib/tomli
 mkdir -p logs
 export CUDA_DEVICE_ORDER=PCI_BUS_ID            # make CUDA indices match nvidia-smi
 [ "$FINDIT_DEPLOY_GPU" != "-1" ] && export CUDA_VISIBLE_DEVICES="$FINDIT_DEPLOY_GPU"
-GPU_ENV="export CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES='${CUDA_VISIBLE_DEVICES:-}' HF_HOME='${HF_HOME:-}'"
+# tmux runs commands through the login shell (tcsh at CSAIL), so each service
+# gets its own bash launcher file instead of an inline command string.
+launcher() {  # $1 name, $2 command
+  cat > "logs/$1.sh" <<LAUNCH
+#!/usr/bin/env bash
+set -o pipefail
+cd "$(pwd)"
+source '$VENV/bin/activate'
+export CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES='${CUDA_VISIBLE_DEVICES:-}' HF_HOME='${HF_HOME:-}'
+exec $2 2>&1 | tee logs/$1.log
+LAUNCH
+  chmod +x "logs/$1.sh"
+}
 
 case "${1:-start}" in
   stop)
@@ -33,11 +45,8 @@ command -v tmux >/dev/null || { echo "tmux is required" >&2; exit 1; }
 VLM_HEALTH="http://127.0.0.1:${FINDIT_VLM_PORT}/v1/models"
 if [ "$FINDIT_VLM_BACKEND" = "openai" ] && ! curl -sf "$VLM_HEALTH" >/dev/null; then
   tmux kill-session -t findit-vllm 2>/dev/null || true
-  tmux new-session -d -s findit-vllm \
-    "source '$VENV/bin/activate' && $GPU_ENV && \
-     vllm serve '$FINDIT_VLM_MODEL' --port $FINDIT_VLM_PORT --host 127.0.0.1 --dtype $FINDIT_VLM_DTYPE \
-       --max-model-len $FINDIT_VLM_MAX_MODEL_LEN --limit-mm-per-prompt '{\"image\":2}' \
-       --gpu-memory-utilization $FINDIT_VLM_GPU_MEMORY_UTILIZATION 2>&1 | tee logs/vllm.log"
+  launcher vllm "vllm serve '$FINDIT_VLM_MODEL' --port $FINDIT_VLM_PORT --host 127.0.0.1 --dtype $FINDIT_VLM_DTYPE --max-model-len $FINDIT_VLM_MAX_MODEL_LEN --limit-mm-per-prompt '{\"image\":2}' --gpu-memory-utilization $FINDIT_VLM_GPU_MEMORY_UTILIZATION"
+  tmux new-session -d -s findit-vllm "$(pwd)/logs/vllm.sh"
   echo -n "waiting for vLLM (first start takes a few minutes)"
   for _ in $(seq 1 120); do curl -sf "$VLM_HEALTH" >/dev/null && break; echo -n "."; sleep 5; done; echo
   curl -sf "$VLM_HEALTH" >/dev/null || { echo "vLLM did not come up; see logs/vllm.log" >&2; exit 1; }
@@ -45,11 +54,14 @@ fi
 echo "VLM backend: $FINDIT_VLM_BACKEND ($FINDIT_VLM_MODEL, $FINDIT_VLM_DTYPE)"
 
 tmux kill-session -t findit-api 2>/dev/null || true
-tmux new-session -d -s findit-api \
-  "source '$VENV/bin/activate' && $GPU_ENV && \
-   uvicorn server.app:app --host $FINDIT_SERVER_HOST --port $FINDIT_SERVER_PORT 2>&1 | tee logs/api.log"
+launcher api "uvicorn server.app:app --host $FINDIT_SERVER_HOST --port $FINDIT_SERVER_PORT"
+tmux new-session -d -s findit-api "$(pwd)/logs/api.sh"
 echo -n "waiting for the API (loads the models; a few minutes on first start)"
-for _ in $(seq 1 150); do curl -s -o /dev/null "http://127.0.0.1:${FINDIT_SERVER_PORT}/" && break; echo -n "."; sleep 4; done
+for _ in $(seq 1 150); do
+  curl -s -o /dev/null "http://127.0.0.1:${FINDIT_SERVER_PORT}/" && break
+  tmux has-session -t findit-api 2>/dev/null || { echo; echo "API exited. Last log lines:"; tail -n 30 logs/api.log; exit 1; }
+  echo -n "."; sleep 4
+done
 
 echo
 echo "findit demo:  http://${FINDIT_SERVER_PUBLIC_HOSTNAME:-$(hostname -f)}:${FINDIT_SERVER_PORT}/"
