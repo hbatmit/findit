@@ -174,14 +174,14 @@ class Siglip2Embedder:
         inputs = self.processor(images=imgs, return_tensors="pt").to(self.device)
         with self.torch.no_grad():
             feats = self.model.get_image_features(**inputs)
-        return _l2(feats.float().cpu().numpy())
+        return _l2(_as_tensor(feats).float().cpu().numpy())
 
     def embed_text(self, texts: list[str]) -> np.ndarray:
         inputs = self.processor(text=texts, padding="max_length", max_length=64,
                                 return_tensors="pt").to(self.device)
         with self.torch.no_grad():
             feats = self.model.get_text_features(**inputs)
-        return _l2(feats.float().cpu().numpy())
+        return _l2(_as_tensor(feats).float().cpu().numpy())
 
 
 class OpenAIVlmDescriber:
@@ -262,6 +262,18 @@ class TransformersVlmDescriber:
 
 
 # --------------------------------------------------------------------------- factories
+
+
+def _as_tensor(feats):
+    """get_image_features / get_text_features return a tensor in older
+    transformers and a model-output object in newer ones."""
+    if hasattr(feats, "pooler_output") and feats.pooler_output is not None:
+        return feats.pooler_output
+    if hasattr(feats, "last_hidden_state"):
+        return feats.last_hidden_state
+    if isinstance(feats, (tuple, list)):
+        return feats[0]
+    return feats
 
 
 def _l2(x: np.ndarray) -> np.ndarray:
