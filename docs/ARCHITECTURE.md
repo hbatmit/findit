@@ -182,7 +182,7 @@ counter at 6:04 pm, but someone picked it up at 6:30 and I haven't seen it
 since." Static cams also emit `CONFIRMED_STILL_THERE` on the periodic sweep,
 which refreshes the timestamp without creating a new placement.
 
-Containers: when the VLM judges that the object went into a drawer, bag or
+Containers: when the VLM judges that the object went into a drawer, bag, or
 cabinet, the record stores `inside: "kitchen top drawer"` and the state stays
 `AT_LOCATION` even though the object is no longer visible.
 
