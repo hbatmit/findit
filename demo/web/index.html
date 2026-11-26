@@ -30,7 +30,7 @@
 <body>
 <main>
   <h1>findit demo</h1>
-  <p class="sub">Upload a clip, then ask where an object was last seen. The clip is deleted after processing; only object embeddings, a one-line location and a small object crop are kept.</p>
+  <p class="sub">Upload a clip, then ask where an object was last seen. The clip is deleted after processing; only object embeddings, a one-line location, and a small object crop are kept.</p>
 
   <section>
     <label for="file">1. Video clip</label>
@@ -89,7 +89,7 @@ async function loadTracks() {
   if (!rows.length) { $('tracks').textContent = 'No objects detected.'; return; }
   $('tracks').innerHTML = '<table><tr><th></th><th>Label</th><th>Seen</th><th>Location</th></tr>' +
     rows.map(r => `<tr><td>${r.has_thumb ? `<img src="/api/tracks/${r.track_id}/thumb" width="48" height="48" style="object-fit:cover;border-radius:6px">` : ''}</td>
-      <td>${esc(r.label)}</td><td>${r.first_seen_s}s – ${r.last_seen_s}s<br><span class="muted">${r.observations} obs</span></td><td>${esc(r.location || '')}</td></tr>`).join('') + '</table>';
+      <td>${esc(r.label)}</td><td>${mmss(r.first_seen_s)} – ${mmss(r.last_seen_s)}<br><span class="muted">${r.observations} obs</span></td><td>${esc(r.location || '')}${r.nearby.length ? `<br><span class="muted">Nearby: ${r.nearby.map(esc).join('; ')}</span>` : ''}</td></tr>`).join('') + '</table>';
 }
 
 $('ask').onclick = ask;
@@ -103,10 +103,13 @@ async function ask() {
   if (!a.found) { $('answer').innerHTML = `<div class="muted">I haven't seen anything matching “${esc(text)}”.</div>`; return; }
   $('answer').innerHTML = `<div class="result">
       <img src="${a.thumb_url}" alt="object crop">
-      <div><div class="loc">${esc(a.location || a.label)}</div>
-      <div class="muted">Last seen at ${a.last_seen_s}s into the clip (${a.observations} sightings, match ${a.similarity}). Detected as “${esc(a.label)}”.</div></div>
+      <div><div class="loc">Last seen around ${mmss(a.last_seen_s)} <span class="muted">(${mmss(a.window_s[0])} – ${mmss(a.window_s[1])})</span></div>
+      ${a.nearby.length ? `<div>Nearby: ${a.nearby.map(esc).join('; ')}</div>` : ''}
+      ${a.location ? `<div>${esc(a.location)}</div>` : ''}
+      <div class="muted">${a.observations} sightings, match ${a.similarity}. Detected as “${esc(a.label)}”.</div></div>
     </div>`;
 }
+function mmss(t) { t = Math.max(0, Math.round(t)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 </script>
 </body>

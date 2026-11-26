@@ -3,7 +3,7 @@
 Upload a clip on a web page → a server processes it into object-location
 embeddings → ask "where are my brown sunglasses?" and get the last known
 location. The clip is deleted once processed; only per-object embeddings, a
-one-sentence location, timestamps and a small object-only crop are kept.
+one-sentence location, timestamps, and a small object-only crop are kept.
 
 ```
 browser ──upload──▶ FastAPI ──▶ pipeline: sample 1 fps → detect → embed crops

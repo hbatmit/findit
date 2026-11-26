@@ -11,6 +11,7 @@ Run:  uvicorn server.app:app --host 0.0.0.0 --port 8000   (from demo/)
 """
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -24,7 +25,7 @@ from pydantic import BaseModel
 
 from . import config
 from .models import make_describer, make_detector, make_embedder
-from .pipeline import Models, answer_query, process_clip
+from .pipeline import Models, answer_query, nearby_phrases, process_clip
 from .store import Store
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -86,6 +87,7 @@ def job_tracks(job_id: str):
         raise HTTPException(404, "unknown job")
     return [{"track_id": r.id, "label": r.label, "first_seen_s": round(r.first_t, 2),
              "last_seen_s": round(r.last_t, 2), "observations": r.n_obs, "location": r.location,
+             "nearby": nearby_phrases(json.loads(r.neighbors) if r.neighbors else []),
              "has_thumb": r.thumb is not None} for r in store.tracks(job_id)]
 
 

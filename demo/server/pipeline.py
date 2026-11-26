@@ -8,6 +8,8 @@ Frames only ever live in this process's memory.
 """
 from __future__ import annotations
 
+import json
+import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +33,7 @@ class Track:
     last_context: np.ndarray
     n_obs: int = 1
     misses: int = 0
+    neighbors: list[dict] = field(default_factory=list)   # other objects in the last frame
 
     @property
     def mean_embedding(self) -> np.ndarray:
@@ -51,6 +54,29 @@ def iou(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
     inter = max(0, x2 - x1) * max(0, y2 - y1)
     area = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
     return inter / area if area > 0 else 0.0
+
+
+def relation(a, b) -> tuple[str, float]:
+    """Describe where box b sits relative to box a, in image terms.
+    Returns (phrase, distance in units of a's size)."""
+    ax, ay = (a[0] + a[2]) / 2, (a[1] + a[3]) / 2
+    bx, by = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+    dx, dy = bx - ax, by - ay
+    size = max(a[2] - a[0], a[3] - a[1], 1)
+    if abs(dx) >= abs(dy):
+        phrase = "to the right" if dx > 0 else "to the left"
+    else:
+        phrase = "below" if dy > 0 else "above"
+    return phrase, math.hypot(dx, dy) / size
+
+
+def neighbors_of(box, others: list[Detection], max_n: int = 4) -> list[dict]:
+    out = []
+    for o in others:
+        phrase, dist = relation(box, o.box)
+        out.append({"label": o.label, "rel": phrase, "dist": round(dist, 1)})
+    out.sort(key=lambda n: n["dist"])
+    return out[:max_n]
 
 
 def crop(frame: np.ndarray, box, pad: float = 0.0, square: bool = False) -> np.ndarray:
@@ -94,7 +120,8 @@ def link(tracks: list[Track], dets: list[Detection], embs: np.ndarray, crops, co
          sim_thr: float, iou_thr: float) -> None:
     """Greedy association of this frame's detections to open tracks."""
     used = set()
-    for det, emb, c, ctx in zip(dets, embs, crops, contexts):
+    for i, (det, emb, c, ctx) in enumerate(zip(dets, embs, crops, contexts)):
+        nbrs = neighbors_of(det.box, [d for j, d in enumerate(dets) if j != i])
         best, best_score = None, -1.0
         for k, tr in enumerate(tracks):
             if k in used or tr.label != det.label:
@@ -106,13 +133,13 @@ def link(tracks: list[Track], dets: list[Detection], embs: np.ndarray, crops, co
                 if score > best_score:
                     best, best_score = k, score
         if best is None:
-            tracks.append(Track(det.label, t, t, det.box, [emb], c, ctx))
+            tracks.append(Track(det.label, t, t, det.box, [emb], c, ctx, neighbors=nbrs))
         else:
             used.add(best)
             tr = tracks[best]
             tr.last_t, tr.last_box, tr.n_obs, tr.misses = t, det.box, tr.n_obs + 1, 0
             tr.embeddings.append(emb)
-            tr.last_crop, tr.last_context = c, ctx
+            tr.last_crop, tr.last_context, tr.neighbors = c, ctx, nbrs
     for k, tr in enumerate(tracks):
         if k not in used:
             tr.misses += 1
@@ -150,7 +177,8 @@ def process_clip(path: Path, job_id: str, models: Models, store: Store,
             tr_location = f"(no description: {e.__class__.__name__})"
         store.add_track(job_id, tr.label, tr.first_t, tr.last_t, tr.last_box, tr.n_obs,
                         tr.mean_embedding, tr_location,
-                        thumb_jpeg(tr.last_crop, config.THUMB_SIZE) if config.THUMB_SIZE else None)
+                        thumb_jpeg(tr.last_crop, config.THUMB_SIZE) if config.THUMB_SIZE else None,
+                        neighbors=json.dumps(tr.neighbors))
 
     if delete_after:
         try:
@@ -161,8 +189,27 @@ def process_clip(path: Path, job_id: str, models: Models, store: Store,
     return len(tracks)
 
 
+TIME_WINDOW_S = 3.0
+
+
+def mmss(t: float) -> str:
+    return f"{int(t) // 60}:{int(t) % 60:02d}"
+
+
+def nearby_phrases(neighbors: list[dict]) -> list[str]:
+    out = []
+    for n in neighbors:
+        closeness = "right next to it" if n["dist"] < 1.5 else "nearby" if n["dist"] < 4 else "further away"
+        out.append(f"{n['label']} {n['rel']}, {closeness}")
+    return out
+
+
 def answer_query(job_id: str, text: str, models: Models, store: Store, k: int = 5) -> dict:
-    """Return the most recently seen track matching the query."""
+    """Return the most recently seen track matching the query.
+
+    "Where" in a single clip means: when it was last seen (a +/- window of
+    seconds into the clip), what else was around it in that frame (from the
+    detector boxes), and the VLM's one-line description of the surroundings."""
     q = models.embedder.embed_text([text])[0]
     hits = store.search(job_id, q, k=k)
     hits = [(r, s) for r, s in hits if s >= config.QUERY_MIN_SIM]
@@ -172,12 +219,24 @@ def answer_query(job_id: str, text: str, models: Models, store: Store, k: int = 
     best_sim = hits[0][1]
     strong = [h for h in hits if h[1] >= best_sim - 0.05]
     row, sim = max(strong, key=lambda h: h[0].last_t)
+    neighbors = json.loads(row.neighbors) if row.neighbors else []
+    t0, t1 = max(0.0, row.last_t - TIME_WINDOW_S), row.last_t + TIME_WINDOW_S
+    nearby = nearby_phrases(neighbors)
+    summary = f"Last seen around {mmss(row.last_t)} (between {mmss(t0)} and {mmss(t1)})."
+    if nearby:
+        summary += " Nearby: " + "; ".join(nearby) + "."
+    if row.location:
+        summary += " " + row.location
     return {
         "found": True,
         "query": text,
         "label": row.label,
+        "summary": summary,
         "location": row.location,
+        "nearby": nearby,
+        "neighbors": neighbors,
         "last_seen_s": round(row.last_t, 2),
+        "window_s": [round(t0, 2), round(t1, 2)],
         "first_seen_s": round(row.first_t, 2),
         "observations": row.n_obs,
         "similarity": round(sim, 3),
@@ -203,7 +262,8 @@ def run_cli():
     for r in store.tracks(job_id):
         print(f"  #{r.id} {r.label:12s} {r.first_t:6.1f}s -> {r.last_t:6.1f}s  x{r.n_obs}  {r.location}")
     for q in queries:
-        print(q, "->", answer_query(job_id, q, models, store))
+        a = answer_query(job_id, q, models, store)
+        print(q, "->", a.get("summary", a))
 
 
 if __name__ == "__main__":

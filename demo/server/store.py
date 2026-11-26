@@ -1,6 +1,6 @@
 """Object memory for the demo: SQLite holding one row per object track.
 
-Only embeddings, text, timestamps, boxes and a tiny object-only crop are
+Only embeddings, text, timestamps, boxes, and a tiny object-only crop are
 stored. The schema has no place for a frame; the pipeline deletes the uploaded
 clip once processing finishes.
 """
@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS track (
     embedding BLOB NOT NULL,         -- float32[d], L2-normalised mean of crop embeddings
     dim INTEGER NOT NULL,
     location TEXT,                   -- VLM one-sentence description
-    thumb BLOB                       -- small JPEG of the object crop only (optional)
+    thumb BLOB,                      -- small JPEG of the object crop only (optional)
+    neighbors TEXT                   -- JSON: other objects in the last frame, relative position
 );
 CREATE INDEX IF NOT EXISTS track_job ON track(job_id);
 """
@@ -51,6 +52,7 @@ class TrackRow:
     embedding: np.ndarray
     location: str | None
     thumb: bytes | None
+    neighbors: str | None = None
 
 
 class Store:
@@ -59,6 +61,10 @@ class Store:
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.executescript(SCHEMA)
+        cols = {r[1] for r in self._conn.execute("PRAGMA table_info(track)")}
+        if "neighbors" not in cols:  # databases created before this column existed
+            self._conn.execute("ALTER TABLE track ADD COLUMN neighbors TEXT")
+            self._conn.commit()
 
     # ---- jobs
     def create_job(self, job_id: str, created_at: float) -> None:
@@ -83,26 +89,26 @@ class Store:
     # ---- tracks
     def add_track(self, job_id: str, label: str, first_t: float, last_t: float,
                   last_box: tuple[int, int, int, int], n_obs: int, embedding: np.ndarray,
-                  location: str | None, thumb: bytes | None) -> int:
+                  location: str | None, thumb: bytes | None, neighbors: str | None = None) -> int:
         emb = np.asarray(embedding, np.float32)
         with self._lock:
             cur = self._conn.execute(
-                "INSERT INTO track(job_id,label,first_t,last_t,last_box,n_obs,embedding,dim,location,thumb)"
-                " VALUES(?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO track(job_id,label,first_t,last_t,last_box,n_obs,embedding,dim,location,thumb,neighbors)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 (job_id, label, first_t, last_t, ",".join(map(str, last_box)), n_obs,
-                 emb.tobytes(), emb.shape[0], location, thumb))
+                 emb.tobytes(), emb.shape[0], location, thumb, neighbors))
             self._conn.commit()
             return int(cur.lastrowid)
 
     def tracks(self, job_id: str) -> list[TrackRow]:
         cur = self._conn.execute(
-            "SELECT id,job_id,label,first_t,last_t,last_box,n_obs,embedding,dim,location,thumb"
+            "SELECT id,job_id,label,first_t,last_t,last_box,n_obs,embedding,dim,location,thumb,neighbors"
             " FROM track WHERE job_id=? ORDER BY last_t", (job_id,))
         out = []
         for r in cur.fetchall():
             emb = np.frombuffer(r[7], np.float32, count=r[8])
             out.append(TrackRow(r[0], r[1], r[2], r[3], r[4], tuple(int(v) for v in r[5].split(",")),
-                                r[6], emb, r[9], r[10]))
+                                r[6], emb, r[9], r[10], r[11]))
         return out
 
     def search(self, job_id: str, query_emb: np.ndarray, k: int = 5) -> list[tuple[TrackRow, float]]:

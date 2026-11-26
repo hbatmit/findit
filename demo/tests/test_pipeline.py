@@ -56,6 +56,9 @@ def test_last_location_is_latest_sighting(tmp_path, models):
     assert res["last_seen_s"] >= 4.0
     row = next(r for r in store.tracks("j1") if r.id == res["track_id"])
     assert row.last_box[0] > 200  # bottom-right placement
+    assert res["window_s"] == [res["last_seen_s"] - 3.0, res["last_seen_s"] + 3.0]
+    assert any(n.startswith("keys to the left") for n in res["nearby"]), res["nearby"]
+    assert "Last seen around" in res["summary"] and "keys to the left" in res["summary"]
 
     res = answer_query("j1", "my keys", models, store)
     assert res["found"] and res["label"] == "keys"

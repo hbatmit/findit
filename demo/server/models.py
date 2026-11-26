@@ -120,7 +120,10 @@ class Owlv2Detector:
         with self.torch.no_grad():
             outputs = self.model(**inputs)
         target = self.torch.tensor([[img.height, img.width]], device=self.device)
-        res = self.processor.post_process_object_detection(outputs, threshold=self.threshold, target_sizes=target)[0]
+        # transformers >= 4.5x renamed the post-processor; keep both for older installs.
+        post = getattr(self.processor, "post_process_grounded_object_detection", None) \
+            or self.processor.post_process_object_detection
+        res = post(outputs, threshold=self.threshold, target_sizes=target)[0]
         out = []
         for score, lab, box in zip(res["scores"], res["labels"], res["boxes"]):
             x1, y1, x2, y2 = [int(v) for v in box.tolist()]
