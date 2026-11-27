@@ -109,7 +109,7 @@ def _main(argv: list[str]) -> None:
         for section, values in CFG.items():
             for key, v in values.items():
                 if isinstance(v, list):
-                    v = ",".join(v)
+                    v = ",".join(map(str, v))
                 print(f"export FINDIT_{section.upper()}_{key.upper()}='{v}'")
         return
     print(f"# config file: {CONFIG_PATH} ({'found' if CONFIG_PATH.exists() else 'not found, defaults'})")
