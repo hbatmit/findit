@@ -112,8 +112,15 @@ def test_password(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "mem.sqlite")
     monkeypatch.setattr(config, "UPLOAD_DIR", tmp_path / "uploads")
-    from server.passwd import hash_password, verify_password
+    from server.passwd import hash_password, verify_password, write_hash
     h = hash_password("hunter22", iterations=1000)
+    cfg = tmp_path / "c.toml"
+    cfg.write_text("[server]\nport = 8000\n\n[vlm]\nmodel = \"x\"\n")
+    write_hash(cfg, 'password_hash = "A"')
+    write_hash(cfg, 'password_hash = "B"')            # replaces, does not duplicate
+    assert cfg.read_text() == "[server]\npassword_hash = \"B\"\nport = 8000\n\n[vlm]\nmodel = \"x\"\n"
+    write_hash(tmp_path / "new.toml", 'password_hash = "C"')   # no [server] yet
+    assert "[server]\npassword_hash = \"C\"" in (tmp_path / "new.toml").read_text()
     assert h.startswith("pbkdf2_sha256$1000$") and verify_password("hunter22", h) and not verify_password("x", h)
     monkeypatch.setattr(config, "PASSWORD_HASH", h)
     import importlib

@@ -86,7 +86,7 @@ how the scripts read them.
 
 | Section | Keys |
 |---|---|
-| `server` | `host`, `port`, `password_hash` (from `python -m server.passwd`; non-empty = HTTP Basic auth on every route), `public_hostname` (for the printed URL), `data_dir`, `thumb_size` (0 stores no pixels) |
+| `server` | `host`, `port`, `password_hash` (set with `python -m server.passwd --write`; non-empty = HTTP Basic auth on every route), `public_hostname` (for the printed URL), `data_dir`, `thumb_size` (0 stores no pixels) |
 | `detector` | `backend` (mock, owlv2, yoloe), model names, `threshold`, `vocab` |
 | `embedder` | `backend` (mock, siglip2), `siglip2_model` |
 | `vlm` | `backend` (mock, transformers, openai), `model`, `dtype`, and for openai: `url`, `port`, `gpu_memory_utilization`, `max_model_len` |
@@ -115,7 +115,7 @@ demo/
 - Search is a numpy cosine over one job's tracks; swap in sqlite-vec when
   multiple clips accumulate.
 - Access control is a single shared password over plain HTTP. Only a PBKDF2
-  hash is stored (`server.password_hash`, made with `python -m server.passwd`),
+  hash is stored (`server.password_hash`, set with `python -m server.passwd --write`),
   so the config file does not reveal it; the password itself still crosses the
   network in the clear on every request. Fine for a demo on a campus network;
   put TLS in front before it carries anything sensitive.
