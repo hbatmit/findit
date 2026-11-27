@@ -16,7 +16,7 @@ VENV="$FINDIT_DEPLOY_VENV"
 # --- GPU check ------------------------------------------------------------
 command -v nvidia-smi >/dev/null || { echo "nvidia-smi not found: expected an NVIDIA GPU host." >&2; exit 1; }
 nvidia-smi --query-gpu=index,name,memory.total,memory.used --format=csv
-echo "deploy.gpu = $FINDIT_DEPLOY_GPU in config.toml (-1 = all). Pick an index with ~0 MiB used on a shared machine."
+echo "deploy.gpu = [$FINDIT_DEPLOY_GPU] in config.toml (-1 = all): one worker with its own model copy (~12 GB) per listed GPU."
 
 # --- model cache location (home dirs at CSAIL are AFS: slow and quota-limited) --
 [ -n "$FINDIT_DEPLOY_HF_HOME" ] && export HF_HOME="$FINDIT_DEPLOY_HF_HOME"

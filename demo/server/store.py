@@ -87,11 +87,22 @@ class Store:
             self._conn.commit()
 
     def get_job(self, job_id: str) -> dict | None:
-        cur = self._conn.execute("SELECT id,status,message,frames,tracks FROM job WHERE id=?", (job_id,))
+        cur = self._conn.execute("SELECT id,status,message,frames,tracks,created_at FROM job WHERE id=?", (job_id,))
         row = cur.fetchone()
         if not row:
             return None
-        return dict(zip(["id", "status", "message", "frames", "tracks"], row))
+        job = dict(zip(["id", "status", "message", "frames", "tracks", "created_at"], row))
+        if job["status"] == "queued":
+            job["ahead"] = self._conn.execute(
+                "SELECT COUNT(*) FROM job WHERE status='queued' AND created_at<?", (job["created_at"],)).fetchone()[0]
+        del job["created_at"]
+        return job
+
+    def requeue_interrupted(self) -> None:
+        """Jobs left in 'processing' by a previous server run can never finish."""
+        with self._lock:
+            self._conn.execute("UPDATE job SET status='error', message='server restarted during processing' WHERE status='processing'")
+            self._conn.commit()
 
     # ---- tracks
     def add_track(self, job_id: str, label: str, first_t: float, last_t: float,

@@ -89,8 +89,12 @@ def test_http_roundtrip(tmp_path, monkeypatch, models):
         r = client.post("/api/upload", files={"file": ("clip.mp4", clip.read_bytes(), "video/mp4")})
         assert r.status_code == 200, r.text
         job = r.json()["job_id"]
-        app_module.executor.shutdown(wait=True)  # wait for the background job
+        # a second upload queues behind the first (one mock worker)
+        r2 = client.post("/api/upload", files={"file": ("clip2.mp4", clip.read_bytes(), "video/mp4")})
+        job2 = r2.json()["job_id"]
+        app_module.pool.wait_idle()
         assert client.get(f"/api/jobs/{job}").json()["status"] == "done"
+        assert client.get(f"/api/jobs/{job2}").json()["status"] == "done"
         assert not list((tmp_path / "uploads").iterdir()), "upload must be deleted"
         tracks = client.get(f"/api/jobs/{job}/tracks").json()
         assert len(tracks) == 2

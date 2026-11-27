@@ -32,7 +32,7 @@ DEFAULTS: dict[str, dict] = {
             "gpu_memory_utilization": 0.6, "max_model_len": 8192},
     "pipeline": {"sample_fps": 1.0, "track_sim": 0.80, "track_iou": 0.10, "query_min_sim": 0.05,
                  "scene_note_every_s": 5.0, "ask_max_images": 6},
-    "deploy": {"gpu": -1, "venv": "./.venv", "hf_home": "", "torch_index": ""},
+    "deploy": {"gpu": [-1], "venv": "./.venv", "hf_home": "", "torch_index": ""},
 }
 
 CONFIG_PATH = Path(os.environ.get("FINDIT_CONFIG", "config.toml"))
@@ -64,6 +64,9 @@ def load(path: Path = CONFIG_PATH) -> dict[str, dict]:
                 values[key] = _coerce(env, default)
             if key in PATH_KEYS and isinstance(values[key], str) and values[key]:
                 values[key] = os.path.expandvars(os.path.expanduser(values[key]))
+    g = cfg["deploy"]["gpu"]
+    g = [g] if isinstance(g, int) else list(g)
+    cfg["deploy"]["gpu"] = [int(x) for x in g]
     return cfg
 
 
@@ -98,6 +101,7 @@ DATA_DIR = Path(CFG["server"]["data_dir"])
 DB_PATH = DATA_DIR / "memory.sqlite"
 UPLOAD_DIR = DATA_DIR / "uploads"
 THUMB_SIZE: int = CFG["server"]["thumb_size"]
+GPUS: list[int] = CFG["deploy"]["gpu"]          # [-1] means every visible GPU
 
 
 def _main(argv: list[str]) -> None:

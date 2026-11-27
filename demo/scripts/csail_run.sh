@@ -16,7 +16,7 @@ eval "$(python -m server.config --shell)"   # venv python: has tomllib/tomli
 [ -z "${HF_HOME:-}" ] && [ -d "/scratch/$USER/hf" ] && export HF_HOME="/scratch/$USER/hf"
 mkdir -p logs
 export CUDA_DEVICE_ORDER=PCI_BUS_ID            # make CUDA indices match nvidia-smi
-[ "$FINDIT_DEPLOY_GPU" != "-1" ] && export CUDA_VISIBLE_DEVICES="$FINDIT_DEPLOY_GPU"
+[ "$FINDIT_DEPLOY_GPU" != "-1" ] && export CUDA_VISIBLE_DEVICES="$FINDIT_DEPLOY_GPU"   # comma-separated list
 # tmux runs commands through the login shell (tcsh at CSAIL), so each service
 # gets its own bash launcher file instead of an inline command string.
 launcher() {  # $1 name, $2 command

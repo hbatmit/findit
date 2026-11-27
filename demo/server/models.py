@@ -122,12 +122,12 @@ class Owlv2Detector:
     """OWLv2 from transformers. Slow (~0.5-1 s/frame on a modest GPU) but zero
     setup and Apache-2.0. Fine for a 1 fps demo."""
 
-    def __init__(self, vocab: list[str], threshold: float):
+    def __init__(self, vocab: list[str], threshold: float, device: str | None = None):
         import torch
         from transformers import Owlv2ForObjectDetection, Owlv2Processor
 
         self.torch = torch
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         name = config.OWLV2_MODEL
         self.processor = Owlv2Processor.from_pretrained(name)
         self.model = Owlv2ForObjectDetection.from_pretrained(name).to(self.device).eval()
@@ -157,15 +157,16 @@ class YoloeDetector:
     """YOLOE via ultralytics (AGPL-3.0; check licensing before productising).
     Much faster than OWLv2."""
 
-    def __init__(self, vocab: list[str], threshold: float):
+    def __init__(self, vocab: list[str], threshold: float, device: str | None = None):
         from ultralytics import YOLOE
 
         self.model = YOLOE(config.YOLOE_WEIGHTS)
         self.model.set_classes(vocab, self.model.get_text_pe(vocab))
         self.threshold = threshold
+        self.device = device
 
     def detect(self, frame: np.ndarray) -> list[Detection]:
-        res = self.model.predict(frame, conf=self.threshold, verbose=False)[0]
+        res = self.model.predict(frame, conf=self.threshold, verbose=False, device=self.device)[0]
         out = []
         for b in res.boxes:
             x1, y1, x2, y2 = [int(v) for v in b.xyxy[0].tolist()]
@@ -176,14 +177,14 @@ class YoloeDetector:
 class Siglip2Embedder:
     """SigLIP2 base: one model for both crop and query embeddings."""
 
-    def __init__(self, name: str | None = None):
+    def __init__(self, name: str | None = None, device: str | None = None):
         import torch
 
         name = name or config.SIGLIP2_MODEL
         from transformers import AutoModel, AutoProcessor
 
         self.torch = torch
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.processor = AutoProcessor.from_pretrained(name)
         self.model = AutoModel.from_pretrained(name).to(self.device).eval()
 
@@ -255,12 +256,12 @@ class TransformersVlmDescriber:
 
     PROMPT = OpenAIVlmDescriber.PROMPT
 
-    def __init__(self, model_name: str, dtype: str = "float16"):
+    def __init__(self, model_name: str, dtype: str = "float16", device: str | None = None):
         import torch
         from transformers import AutoModelForImageTextToText, AutoProcessor
 
         self.torch = torch
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         td = {"float16": torch.float16, "bfloat16": torch.bfloat16, "float32": torch.float32}[dtype]
         self.processor = AutoProcessor.from_pretrained(model_name)
         self.model = AutoModelForImageTextToText.from_pretrained(model_name, dtype=td).to(self.device).eval()
@@ -309,23 +310,41 @@ def _l2(x: np.ndarray) -> np.ndarray:
     return x / np.maximum(np.linalg.norm(x, axis=1, keepdims=True), 1e-8)
 
 
-def make_detector():
+def uses_gpu() -> bool:
+    return config.DETECTOR != "mock" or config.EMBEDDER != "mock" or config.VLM_BACKEND == "transformers"
+
+
+def gpu_devices() -> list[str]:
+    """Torch device strings to load one model set on each. Mock-only setups get
+    a single CPU set; otherwise every GPU visible to this process (the run
+    script sets CUDA_VISIBLE_DEVICES from deploy.gpu)."""
+    if not uses_gpu():
+        return ["cpu"]
+    try:
+        import torch
+        n = torch.cuda.device_count()
+    except Exception:  # noqa: BLE001
+        n = 0
+    return [f"cuda:{i}" for i in range(n)] or ["cpu"]
+
+
+def make_detector(device: str | None = None):
     if config.DETECTOR == "owlv2":
-        return Owlv2Detector(config.VOCAB, config.DET_THRESHOLD)
+        return Owlv2Detector(config.VOCAB, config.DET_THRESHOLD, device)
     if config.DETECTOR == "yoloe":
-        return YoloeDetector(config.VOCAB, config.DET_THRESHOLD)
+        return YoloeDetector(config.VOCAB, config.DET_THRESHOLD, device)
     return MockDetector()
 
 
-def make_embedder():
+def make_embedder(device: str | None = None):
     if config.EMBEDDER == "siglip2":
-        return Siglip2Embedder()
+        return Siglip2Embedder(device=device)
     return MockEmbedder()
 
 
-def make_describer():
+def make_describer(device: str | None = None):
     if config.VLM_BACKEND == "transformers":
-        return TransformersVlmDescriber(config.VLM_MODEL, config.VLM_DTYPE)
+        return TransformersVlmDescriber(config.VLM_MODEL, config.VLM_DTYPE, device)
     if config.VLM_BACKEND == "openai" and config.VLM_URL:
         return OpenAIVlmDescriber(config.VLM_URL, config.VLM_MODEL)
     return MockDescriber()

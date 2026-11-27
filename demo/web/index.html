@@ -90,7 +90,8 @@ $('upload').onclick = async () => {
 
 async function checkJob() {
   const j = await (await fetch(`/api/jobs/${jobId}`)).json();
-  $('jobstatus').textContent = `Job ${jobId}: ${j.status} — ${j.frames} frames, ${j.tracks} objects` + (j.message ? ' — ' + j.message : '');
+  const queued = j.status === 'queued' ? (j.ahead ? ` (${j.ahead} clip${j.ahead > 1 ? 's' : ''} ahead of yours, ${j.workers} worker${j.workers > 1 ? 's' : ''})` : ' (starts next)') : '';
+  $('jobstatus').textContent = `Job ${jobId}: ${j.status}${queued} — ${j.frames} frames, ${j.tracks} objects` + (j.message ? ' — ' + j.message : '');
   if (j.status === 'done' || j.status === 'error') {
     clearInterval(poll); $('upload').disabled = false;
     if (j.status === 'done') { $('ask').disabled = false; $('q').disabled = false; $('askbtn').disabled = false; $('askq').disabled = false; $('q').focus(); loadTracks(); loadNotes(); }
