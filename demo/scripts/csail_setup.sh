@@ -82,9 +82,17 @@ from huggingface_hub import snapshot_download
 repos = [os.environ["FINDIT_EMBEDDER_SIGLIP2_MODEL"], os.environ["FINDIT_VLM_MODEL"]]
 if os.environ["FINDIT_DETECTOR_BACKEND"] == "owlv2":
     repos.append(os.environ["FINDIT_DETECTOR_OWLV2_MODEL"])
+if os.environ["FINDIT_DETECTOR_BACKEND"] == "sam3":
+    repos.append(os.environ["FINDIT_DETECTOR_SAM3_MODEL"])
 for repo in repos:
     print("fetching", repo)
-    snapshot_download(repo)
+    try:
+        snapshot_download(repo)
+    except Exception as e:  # gated repo without access, or offline
+        if "sam3" in repo:
+            raise SystemExit(f"cannot download {repo}: {e.__class__.__name__}. SAM 3 is gated: accept the terms at "
+                             f"https://huggingface.co/{repo} and run `hf auth login` in this venv, then re-run setup.")
+        raise
 PYEOF
 
 echo "$VENV" > .findit-venv   # lets csail_run.sh find the venv before reading config.toml

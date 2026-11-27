@@ -69,7 +69,10 @@ python -m server.pipeline path/to/clip.mp4 "brown sunglasses" "keys"
    ```
 
    `detector.backend = "yoloe"` is much faster than OWLv2 but pulls in
-   ultralytics (AGPL-3.0).
+   ultralytics (AGPL-3.0). `detector.backend = "sam3"` uses Meta's SAM 3
+   (stronger open-vocabulary detection plus masks; 0.9B parameters; gated
+   checkpoint: accept the terms at huggingface.co/facebook/sam3 and run
+   `hf auth login` in the venv first).
 
 4. Expose it: CSAIL machines are reachable over the CSAIL VPN; for off-campus
    viewers put nginx with TLS in front, or use a Tailscale/Cloudflare tunnel.
@@ -87,10 +90,10 @@ how the scripts read them.
 | Section | Keys |
 |---|---|
 | `server` | `host`, `port`, `password_hash` (set with `python -m server.passwd --write`; non-empty = HTTP Basic auth on every route), `public_hostname` (for the printed URL), `data_dir`, `thumb_size` (0 stores no pixels) |
-| `detector` | `backend` (mock, owlv2, yoloe), model names, `threshold`, `vocab` |
+| `detector` | `backend` (mock, owlv2, yoloe, sam3), model names, `threshold`, `vocab`; for SAM 3: `sam3_threshold`, `sam3_dtype`, `sam3_nms_iou` |
 | `embedder` | `backend` (mock, siglip2), `siglip2_model` |
 | `vlm` | `backend` (mock, transformers, openai), `model`, `dtype`, and for openai: `url`, `port`, `gpu_memory_utilization`, `max_model_len` |
-| `pipeline` | `sample_fps`, `track_sim`, `track_iou`, `query_min_sim`, `scene_note_every_s` (0 = off), `ask_max_images` |
+| `pipeline` | `sample_fps`, `mask_crops` (grey out background when the detector gives masks), `track_sim`, `track_iou`, `query_min_sim`, `scene_note_every_s` (0 = off), `ask_max_images` |
 | `deploy` | `gpu` (list of nvidia-smi indices, one worker with its own model copy per GPU; -1 for all), `venv`, `hf_home`, `torch_index` (empty = auto-pick CUDA 12.6 wheels on Volta / old drivers) |
 
 ## Layout

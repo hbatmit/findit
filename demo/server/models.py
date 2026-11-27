@@ -26,6 +26,25 @@ class Detection:
     label: str
     score: float
     box: tuple[int, int, int, int]  # x1, y1, x2, y2 in pixels
+    mask: np.ndarray | None = None  # full-frame boolean mask when the detector segments (SAM 3)
+
+
+def box_iou(a, b) -> float:
+    x1, y1 = max(a[0], b[0]), max(a[1], b[1])
+    x2, y2 = min(a[2], b[2]), min(a[3], b[3])
+    inter = max(0, x2 - x1) * max(0, y2 - y1)
+    area = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / area if area > 0 else 0.0
+
+
+def merge_across_labels(dets: list[Detection], iou_thr: float) -> list[Detection]:
+    """Open-vocabulary prompts overlap ("sunglasses" and "glasses" find the same
+    pixels). Keep the highest-scoring detection of each region."""
+    keep: list[Detection] = []
+    for d in sorted(dets, key=lambda d: -d.score):
+        if all(box_iou(d.box, k.box) < iou_thr for k in keep):
+            keep.append(d)
+    return keep
 
 
 # --------------------------------------------------------------------------- mock
@@ -174,6 +193,54 @@ class YoloeDetector:
         return out
 
 
+class Sam3Detector:
+    """SAM 3 (Segment Anything with Concepts) in image mode with text prompts.
+    Vision features are computed once per frame and reused for every prompt in
+    the vocabulary. Returns boxes plus full-frame masks."""
+
+    def __init__(self, vocab: list[str], threshold: float, device: str | None = None):
+        import torch
+        from transformers import Sam3Model, Sam3Processor
+
+        self.torch = torch
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        td = {"float16": torch.float16, "bfloat16": torch.bfloat16, "float32": torch.float32}[config.SAM3_DTYPE]
+        self.processor = Sam3Processor.from_pretrained(config.SAM3_MODEL)
+        self.model = Sam3Model.from_pretrained(config.SAM3_MODEL, dtype=td).to(self.device).eval()
+        self.dtype = td
+        self.vocab = vocab
+        self.threshold = threshold
+        # tokenise the vocabulary once
+        self.text_inputs = [self.processor(text=t, return_tensors="pt").to(self.device) for t in vocab]
+
+    def detect(self, frame: np.ndarray) -> list[Detection]:
+        from PIL import Image
+
+        img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        img_inputs = self.processor(images=img, return_tensors="pt").to(self.device)
+        pixel_values = img_inputs.pixel_values.to(self.dtype)
+        sizes = img_inputs.get("original_sizes").tolist()
+        out: list[Detection] = []
+        with self.torch.no_grad():
+            try:
+                vision = self.model.get_vision_features(pixel_values=pixel_values)
+                runs = [(t, self.model(vision_embeds=vision, **ti)) for t, ti in zip(self.vocab, self.text_inputs)]
+            except (AttributeError, TypeError):  # older/newer API: full forward per prompt
+                runs = [(t, self.model(pixel_values=pixel_values, **ti)) for t, ti in zip(self.vocab, self.text_inputs)]
+            for label, outputs in runs:
+                res = self.processor.post_process_instance_segmentation(
+                    outputs, threshold=self.threshold, mask_threshold=0.5, target_sizes=sizes)[0]
+                boxes, scores = res["boxes"], res["scores"]
+                masks = res.get("masks")
+                for i in range(len(scores)):
+                    x1, y1, x2, y2 = [int(v) for v in boxes[i].tolist()]
+                    if x2 <= x1 or y2 <= y1:
+                        continue
+                    m = masks[i].bool().cpu().numpy() if masks is not None else None
+                    out.append(Detection(label, float(scores[i]), (x1, y1, x2, y2), m))
+        return merge_across_labels(out, config.SAM3_NMS_IOU)
+
+
 class Siglip2Embedder:
     """SigLIP2 base: one model for both crop and query embeddings."""
 
@@ -310,6 +377,10 @@ def _l2(x: np.ndarray) -> np.ndarray:
     return x / np.maximum(np.linalg.norm(x, axis=1, keepdims=True), 1e-8)
 
 
+def make_detector_cls(name: str):
+    return {"owlv2": Owlv2Detector, "yoloe": YoloeDetector, "sam3": Sam3Detector}.get(name)
+
+
 def uses_gpu() -> bool:
     return config.DETECTOR != "mock" or config.EMBEDDER != "mock" or config.VLM_BACKEND == "transformers"
 
@@ -333,6 +404,8 @@ def make_detector(device: str | None = None):
         return Owlv2Detector(config.VOCAB, config.DET_THRESHOLD, device)
     if config.DETECTOR == "yoloe":
         return YoloeDetector(config.VOCAB, config.DET_THRESHOLD, device)
+    if config.DETECTOR == "sam3":
+        return Sam3Detector(config.VOCAB, config.SAM3_THRESHOLD, device)
     return MockDetector()
 
 

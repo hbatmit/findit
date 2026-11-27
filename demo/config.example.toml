@@ -14,10 +14,15 @@ data_dir = "./data"          # SQLite + transient uploads (deleted after process
 thumb_size = 96              # object-crop thumbnail px; 0 stores no pixels at all
 
 [detector]
-backend = "owlv2"            # mock | owlv2 | yoloe
+backend = "owlv2"            # mock | owlv2 | yoloe | sam3
 owlv2_model = "google/owlv2-base-patch16-ensemble"
 yoloe_weights = "yoloe-11s-seg.pt"
-threshold = 0.25
+threshold = 0.25             # owlv2 / yoloe confidence
+# SAM 3 (gated: accept the terms at huggingface.co/facebook/sam3, then `hf auth login` on the server)
+sam3_model = "facebook/sam3"
+sam3_threshold = 0.5         # SAM 3 scores are calibrated differently from OWLv2
+sam3_dtype = "float32"       # float16 is worth trying on V100 once float32 is confirmed working
+sam3_nms_iou = 0.7           # merge detections of the same region found under two prompts (e.g. sunglasses / glasses)
 vocab = [
   "sunglasses", "glasses", "keys", "headphones", "earbuds", "book", "scissors",
   "phone", "wallet", "remote control", "mug", "bottle", "laptop", "pen",
@@ -43,6 +48,7 @@ max_model_len = 8192
 
 [pipeline]
 sample_fps = 1.0
+mask_crops = true            # when the detector returns masks, grey out the background of crops before embedding
 scene_note_every_s = 5.0     # VLM writes a one-line note about the scene this often (0 = off). Used by "ask anything".
 ask_max_images = 6           # object thumbnails shown to the VLM when answering a free-form question
 track_sim = 0.80             # cosine on crop embeddings to link detections

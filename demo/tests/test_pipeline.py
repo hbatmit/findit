@@ -133,3 +133,20 @@ def test_password(tmp_path, monkeypatch):
         assert client.get("/", auth=("anyone", "wrong")).status_code == 401
         assert client.get("/", auth=("anyone", "hunter22")).status_code == 200
         assert client.get("/api/jobs/x", auth=("anyone", "hunter22")).status_code == 404
+
+
+def test_merge_across_labels_and_masked_crop():
+    from server.models import Detection, merge_across_labels
+    from server.pipeline import masked_frame
+
+    a = Detection("sunglasses", 0.9, (10, 10, 50, 30))
+    b = Detection("glasses", 0.6, (11, 10, 50, 31))      # same region, other prompt
+    c = Detection("keys", 0.7, (100, 100, 140, 120))
+    kept = merge_across_labels([b, a, c], iou_thr=0.7)
+    assert [d.label for d in kept] == ["sunglasses", "keys"]
+
+    frame = np.full((40, 60, 3), 200, np.uint8)
+    mask = np.zeros((40, 60), bool); mask[10:30, 10:50] = True
+    out = masked_frame(frame, mask, dilate_px=0)
+    assert out[20, 20].tolist() == [200, 200, 200] and out[5, 5].tolist() == [128, 128, 128]
+    assert masked_frame(frame, None) is frame

@@ -23,6 +23,7 @@ DEFAULTS: dict[str, dict] = {
     "server": {"host": "0.0.0.0", "port": 8000, "password_hash": "", "public_hostname": "", "data_dir": "./data", "thumb_size": 96},
     "detector": {"backend": "mock", "owlv2_model": "google/owlv2-base-patch16-ensemble",
                  "yoloe_weights": "yoloe-11s-seg.pt", "threshold": 0.25,
+                 "sam3_model": "facebook/sam3", "sam3_threshold": 0.5, "sam3_dtype": "float32", "sam3_nms_iou": 0.7,
                  "vocab": ["sunglasses", "glasses", "keys", "headphones", "earbuds", "book", "scissors",
                            "phone", "wallet", "remote control", "mug", "bottle", "laptop", "pen",
                            "notebook", "hat", "bag"]},
@@ -30,7 +31,7 @@ DEFAULTS: dict[str, dict] = {
     "vlm": {"backend": "mock", "model": "Qwen/Qwen3-VL-4B-Instruct", "dtype": "float16",
             "url": "http://127.0.0.1:8001/v1", "port": 8001,
             "gpu_memory_utilization": 0.6, "max_model_len": 8192},
-    "pipeline": {"sample_fps": 1.0, "track_sim": 0.80, "track_iou": 0.10, "query_min_sim": 0.05,
+    "pipeline": {"sample_fps": 1.0, "mask_crops": True, "track_sim": 0.80, "track_iou": 0.10, "query_min_sim": 0.05,
                  "scene_note_every_s": 5.0, "ask_max_images": 6},
     "deploy": {"gpu": [-1], "venv": "./.venv", "hf_home": "", "torch_index": ""},
 }
@@ -78,6 +79,10 @@ OWLV2_MODEL: str = CFG["detector"]["owlv2_model"]
 YOLOE_WEIGHTS: str = CFG["detector"]["yoloe_weights"]
 DET_THRESHOLD: float = CFG["detector"]["threshold"]
 VOCAB: list[str] = CFG["detector"]["vocab"]
+SAM3_MODEL: str = CFG["detector"]["sam3_model"]
+SAM3_THRESHOLD: float = CFG["detector"]["sam3_threshold"]
+SAM3_DTYPE: str = CFG["detector"]["sam3_dtype"]
+SAM3_NMS_IOU: float = CFG["detector"]["sam3_nms_iou"]
 
 EMBEDDER: str = CFG["embedder"]["backend"]
 SIGLIP2_MODEL: str = CFG["embedder"]["siglip2_model"]
@@ -88,6 +93,7 @@ VLM_MODEL: str = CFG["vlm"]["model"]
 VLM_DTYPE: str = CFG["vlm"]["dtype"]
 
 SAMPLE_FPS: float = CFG["pipeline"]["sample_fps"]
+MASK_CROPS: bool = CFG["pipeline"]["mask_crops"]
 TRACK_SIM: float = CFG["pipeline"]["track_sim"]
 TRACK_IOU: float = CFG["pipeline"]["track_iou"]
 QUERY_MIN_SIM: float = CFG["pipeline"]["query_min_sim"]

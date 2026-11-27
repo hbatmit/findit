@@ -79,6 +79,19 @@ def neighbors_of(box, others: list[Detection], max_n: int = 4) -> list[dict]:
     return out[:max_n]
 
 
+def masked_frame(frame: np.ndarray, mask: np.ndarray | None, dilate_px: int = 6) -> np.ndarray:
+    """Grey out everything outside the object's mask (slightly dilated), so the
+    crop embedding and thumbnail describe the object rather than its background."""
+    if mask is None or mask.shape[:2] != frame.shape[:2]:
+        return frame
+    m = mask.astype(np.uint8)
+    if dilate_px:
+        m = cv2.dilate(m, np.ones((dilate_px * 2 + 1, dilate_px * 2 + 1), np.uint8))
+    out = np.full_like(frame, 128)
+    out[m.astype(bool)] = frame[m.astype(bool)]
+    return out
+
+
 def crop(frame: np.ndarray, box, pad: float = 0.0, square: bool = False) -> np.ndarray:
     h, w = frame.shape[:2]
     x1, y1, x2, y2 = box
@@ -177,8 +190,11 @@ def process_clip(path: Path, job_id: str, models: Models, store: Store,
                 store.add_scene_note(job_id, t, f"(no scene note: {e.__class__.__name__})")
         dets = models.detector.detect(frame)
         if dets:
-            crops = [crop(frame, d.box, pad=0.1, square=True) for d in dets]
-            contexts = [crop(frame, d.box, pad=1.5, square=True) for d in dets]
+            if config.MASK_CROPS:
+                crops = [crop(masked_frame(frame, d.mask), d.box, pad=0.1, square=True) for d in dets]
+            else:
+                crops = [crop(frame, d.box, pad=0.1, square=True) for d in dets]
+            contexts = [crop(frame, d.box, pad=1.5, square=True) for d in dets]   # context keeps the background
             embs = models.embedder.embed_images(crops, [d.label for d in dets])
             link(tracks, dets, embs, crops, contexts, t, config.TRACK_SIM, config.TRACK_IOU)
         if progress:
