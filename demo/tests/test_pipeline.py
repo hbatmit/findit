@@ -106,3 +106,20 @@ def test_http_roundtrip(tmp_path, monkeypatch, models):
         assert q["answer"] and len(q["thumb_urls"]) == 2
         assert len(client.get(f"/api/jobs/{job}/notes").json()) == 2
         assert client.get("/").status_code == 200
+
+
+def test_password(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "mem.sqlite")
+    monkeypatch.setattr(config, "UPLOAD_DIR", tmp_path / "uploads")
+    monkeypatch.setattr(config, "PASSWORD", "hunter2")
+    import importlib
+    from server import app as app_module
+    importlib.reload(app_module)
+    with TestClient(app_module.app) as client:
+        r = client.get("/")
+        assert r.status_code == 401 and r.headers["www-authenticate"].startswith("Basic")
+        assert client.get("/api/jobs/x").status_code == 401
+        assert client.get("/", auth=("anyone", "wrong")).status_code == 401
+        assert client.get("/", auth=("anyone", "hunter2")).status_code == 200
+        assert client.get("/api/jobs/x", auth=("anyone", "hunter2")).status_code == 404

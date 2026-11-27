@@ -86,7 +86,7 @@ how the scripts read them.
 
 | Section | Keys |
 |---|---|
-| `server` | `host`, `port`, `public_hostname` (for the printed URL), `data_dir`, `thumb_size` (0 stores no pixels) |
+| `server` | `host`, `port`, `password` (non-empty = HTTP Basic auth on every route), `public_hostname` (for the printed URL), `data_dir`, `thumb_size` (0 stores no pixels) |
 | `detector` | `backend` (mock, owlv2, yoloe), model names, `threshold`, `vocab` |
 | `embedder` | `backend` (mock, siglip2), `siglip2_model` |
 | `vlm` | `backend` (mock, transformers, openai), `model`, `dtype`, and for openai: `url`, `port`, `gpu_memory_utilization`, `max_model_len` |
@@ -114,6 +114,9 @@ demo/
 - No person masking before embedding (add before showing real household clips).
 - Search is a numpy cosine over one job's tracks; swap in sqlite-vec when
   multiple clips accumulate.
+- Access control is a single shared password over plain HTTP (`server.password`).
+  Fine for a demo on a campus network; put TLS in front before it carries anything
+  sensitive.
 - One worker per GPU listed in `deploy.gpu`, each with its own copy of the
   models; clips queue FIFO and the page shows how many are ahead. Queries use
   an idle worker's models when one exists.

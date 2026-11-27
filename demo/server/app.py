@@ -11,15 +11,17 @@ Run:  uvicorn server.app:app --host 0.0.0.0 --port 8000   (from demo/)
 """
 from __future__ import annotations
 
+import base64
 import json
 import queue
+import secrets
 import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -106,6 +108,25 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="findit demo", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def require_password(request: Request, call_next):
+    """HTTP Basic auth on every route when server.password is set. The browser
+    prompts once and resends the credentials; any user name is accepted."""
+    if config.PASSWORD:
+        header = request.headers.get("authorization", "")
+        ok = False
+        if header.startswith("Basic "):
+            try:
+                _user, _, pw = base64.b64decode(header[6:]).decode().partition(":")
+                ok = secrets.compare_digest(pw, config.PASSWORD)
+            except Exception:  # noqa: BLE001
+                ok = False
+        if not ok:
+            return Response("password required", status_code=401,
+                            headers={"WWW-Authenticate": 'Basic realm="findit", charset="UTF-8"'})
+    return await call_next(request)
 
 
 def _run_job(job_id: str, path: Path, models: Models):
