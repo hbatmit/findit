@@ -11,10 +11,11 @@ Run:  uvicorn server.app:app --host 0.0.0.0 --port 8000   (from demo/)
 """
 from __future__ import annotations
 
+import asyncio
 import base64
+import hashlib
 import json
 import queue
-import secrets
 import threading
 import time
 import uuid
@@ -28,6 +29,7 @@ from pydantic import BaseModel
 
 from . import config
 from .models import gpu_devices, make_describer, make_detector, make_embedder
+from .passwd import verify_password
 from .pipeline import Models, answer_query, ask, nearby_phrases, process_clip
 from .store import Store
 
@@ -110,20 +112,40 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="findit demo", lifespan=lifespan)
 
 
+# Verified credentials, keyed by a SHA-256 of the presented password, so the
+# slow PBKDF2 check runs once per password rather than on every 1 s poll.
+_auth_cache: dict[str, bool] = {}
+_auth_lock = threading.Lock()
+
+
+def _password_ok(pw: str) -> bool:
+    key = hashlib.sha256(pw.encode()).hexdigest()
+    with _auth_lock:
+        if key in _auth_cache:
+            return _auth_cache[key]
+    ok = verify_password(pw, config.PASSWORD_HASH)
+    with _auth_lock:
+        if len(_auth_cache) > 1000:  # bound memory under a guessing attack
+            _auth_cache.clear()
+        _auth_cache[key] = ok
+    return ok
+
+
 @app.middleware("http")
 async def require_password(request: Request, call_next):
-    """HTTP Basic auth on every route when server.password is set. The browser
-    prompts once and resends the credentials; any user name is accepted."""
-    if config.PASSWORD:
+    """HTTP Basic auth on every route when server.password_hash is set. The
+    browser prompts once and resends the credentials; any user name is accepted."""
+    if config.PASSWORD_HASH:
         header = request.headers.get("authorization", "")
         ok = False
         if header.startswith("Basic "):
             try:
                 _user, _, pw = base64.b64decode(header[6:]).decode().partition(":")
-                ok = secrets.compare_digest(pw, config.PASSWORD)
+                ok = await asyncio.to_thread(_password_ok, pw)
             except Exception:  # noqa: BLE001
                 ok = False
         if not ok:
+            await asyncio.sleep(0.5)  # blunt the rate of online guessing
             return Response("password required", status_code=401,
                             headers={"WWW-Authenticate": 'Basic realm="findit", charset="UTF-8"'})
     return await call_next(request)

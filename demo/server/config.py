@@ -20,7 +20,7 @@ except ModuleNotFoundError:  # Ubuntu 22.04 ships 3.10
     import tomli as tomllib
 
 DEFAULTS: dict[str, dict] = {
-    "server": {"host": "0.0.0.0", "port": 8000, "password": "", "public_hostname": "", "data_dir": "./data", "thumb_size": 96},
+    "server": {"host": "0.0.0.0", "port": 8000, "password_hash": "", "public_hostname": "", "data_dir": "./data", "thumb_size": 96},
     "detector": {"backend": "mock", "owlv2_model": "google/owlv2-base-patch16-ensemble",
                  "yoloe_weights": "yoloe-11s-seg.pt", "threshold": 0.25,
                  "vocab": ["sunglasses", "glasses", "keys", "headphones", "earbuds", "book", "scissors",
@@ -95,7 +95,7 @@ SCENE_NOTE_EVERY_S: float = CFG["pipeline"]["scene_note_every_s"]
 ASK_MAX_IMAGES: int = CFG["pipeline"]["ask_max_images"]
 
 HOST: str = CFG["server"]["host"]
-PASSWORD: str = CFG["server"]["password"]
+PASSWORD_HASH: str = CFG["server"]["password_hash"]
 PORT: int = CFG["server"]["port"]
 PUBLIC_HOSTNAME: str = CFG["server"]["public_hostname"]
 DATA_DIR = Path(CFG["server"]["data_dir"])
@@ -109,7 +109,7 @@ def _main(argv: list[str]) -> None:
     if "--shell" in argv:
         for section, values in CFG.items():
             for key, v in values.items():
-                if key == "password":
+                if key == "password_hash":
                     continue
                 if isinstance(v, list):
                     v = ",".join(map(str, v))
@@ -119,7 +119,7 @@ def _main(argv: list[str]) -> None:
     for section, values in CFG.items():
         print(f"[{section}]")
         for key, v in values.items():
-            print(f"  {key} = {'***' if key == 'password' and v else v!r}")
+            print(f"  {key} = {'***' if key == 'password_hash' and v else v!r}")
 
 
 if __name__ == "__main__":

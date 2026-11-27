@@ -112,7 +112,10 @@ def test_password(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "mem.sqlite")
     monkeypatch.setattr(config, "UPLOAD_DIR", tmp_path / "uploads")
-    monkeypatch.setattr(config, "PASSWORD", "hunter2")
+    from server.passwd import hash_password, verify_password
+    h = hash_password("hunter22", iterations=1000)
+    assert h.startswith("pbkdf2_sha256$1000$") and verify_password("hunter22", h) and not verify_password("x", h)
+    monkeypatch.setattr(config, "PASSWORD_HASH", h)
     import importlib
     from server import app as app_module
     importlib.reload(app_module)
@@ -121,5 +124,5 @@ def test_password(tmp_path, monkeypatch):
         assert r.status_code == 401 and r.headers["www-authenticate"].startswith("Basic")
         assert client.get("/api/jobs/x").status_code == 401
         assert client.get("/", auth=("anyone", "wrong")).status_code == 401
-        assert client.get("/", auth=("anyone", "hunter2")).status_code == 200
-        assert client.get("/api/jobs/x", auth=("anyone", "hunter2")).status_code == 404
+        assert client.get("/", auth=("anyone", "hunter22")).status_code == 200
+        assert client.get("/api/jobs/x", auth=("anyone", "hunter22")).status_code == 404

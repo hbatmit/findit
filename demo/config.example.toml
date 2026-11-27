@@ -8,7 +8,7 @@
 [server]
 host = "0.0.0.0"
 port = 8000
-password = ""                # non-empty = browser asks for a password (any user name) on every route
+password_hash = ""           # from `python -m server.passwd`; non-empty = browser asks for the password on every route
 public_hostname = "mapmaker-gpu2.csail.mit.edu"   # only used to print the URL
 data_dir = "./data"          # SQLite + transient uploads (deleted after processing)
 thumb_size = 96              # object-crop thumbnail px; 0 stores no pixels at all
