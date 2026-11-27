@@ -91,7 +91,7 @@ how the scripts read them.
 | `embedder` | `backend` (mock, siglip2), `siglip2_model` |
 | `vlm` | `backend` (mock, transformers, openai), `model`, `dtype`, and for openai: `url`, `port`, `gpu_memory_utilization`, `max_model_len` |
 | `pipeline` | `sample_fps`, `track_sim`, `track_iou`, `query_min_sim`, `scene_note_every_s` (0 = off), `ask_max_images` |
-| `deploy` | `gpu` (nvidia-smi index, -1 for all), `venv`, `hf_home`, `torch_index` (empty = auto-pick CUDA 12.6 wheels on Volta / old drivers) |
+| `deploy` | `gpu` (list of nvidia-smi indices, one worker with its own model copy per GPU; -1 for all), `venv`, `hf_home`, `torch_index` (empty = auto-pick CUDA 12.6 wheels on Volta / old drivers) |
 
 ## Layout
 
@@ -114,7 +114,9 @@ demo/
 - No person masking before embedding (add before showing real household clips).
 - Search is a numpy cosine over one job's tracks; swap in sqlite-vec when
   multiple clips accumulate.
-- One worker thread; one clip processed at a time.
+- One worker per GPU listed in `deploy.gpu`, each with its own copy of the
+  models; clips queue FIFO and the page shows how many are ahead. Queries use
+  an idle worker's models when one exists.
 
 See `../docs/ARCHITECTURE.md` for where this grows into the full system.
 
